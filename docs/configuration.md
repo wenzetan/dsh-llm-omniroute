@@ -61,6 +61,7 @@ Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后
 | --- | --- | --- |
 | `baseURL` | 受信启动环境的 `OMNIROUTE_BASE_URL`，否则 `http://127.0.0.1:20128/v1` | 网关基础地址，包含 `/v1`；`/models`、`/chat/completions`、`/search`、`/web/fetch` 都追加在它后面 |
 | `models` | `[]` | 模型选择器中的目录，可在 Web 获取或手动新增 |
+| `groupLabels` | `{}` | 分组显示名，键为 id 的第一个路径段；只影响设置页与模型列表的展示 |
 | `modelExcludePatterns` | `['embed', 'rerank', 'ranker']` | 获取模型时按 ID 子串排除，不区分大小写；整体替换默认值，`[]` 关闭该过滤（能力字段过滤仍然生效） |
 | `defaultContextWindow` | `128000` | 模型未配置上下文容量时的回退值 |
 | `maxTokens` | 不设置 | 全局输出上限；模型自己的 `maxTokens` 优先，均未设置则不发送 `max_tokens` |
@@ -80,6 +81,10 @@ Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后
 每个模型必须有唯一且非空的 `id`，可选字段为 `name`、`description`、`contextWindow`、`maxTokens`、
 `vision`、`toolCalling`、`reasoningEfforts`、`defaultReasoningEffort`、`effortModels`。容量必须为
 正整数。Web 容量输入框支持 `128K`、`1M`（分别为 128000、1000000），YAML 使用整数。
+
+设置页按 id 的第一个路径段给模型分组，候选列表可以整组折叠，全选按钮在满选时切换为反选；
+`groupLabels` 为分组设置显示名，组内模型显示为「[显示名]尾段」。分组与显示名只影响展示，不改写
+模型 id 与请求内容。
 
 `effortModels` 的键必须是 `reasoningEfforts` 中声明过的等级，值不能为空——写错会在保存时被拒绝。
 

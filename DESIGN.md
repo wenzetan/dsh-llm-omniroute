@@ -40,6 +40,9 @@ Remote 命名空间读写设置与凭据；模型目录和 models.dev 查询走�
 设置命名空间就是 profile 里的插件行 id（本插件的 bundle patch 使用 `dsh-llm-omniroute`），设置服务只
 暴露标记为 volatile 的字段，写入落回 profile patch。
 
+设置页的模型目录按 id 首个路径段分组，分组可折叠，候选列表的全选在满选时切换为反选；`groupLabels`
+只改变分组显示名与行文本，不参与请求。
+
 ## 代码导航
 
 | 文件 | 职责 |

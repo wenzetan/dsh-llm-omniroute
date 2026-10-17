@@ -95,6 +95,12 @@ leaves a field empty while more than one provider is usable, the seam answers
 5. Click **Save**, then pick a model under the `omniroute` provider in the
    conversation model picker.
 
+The fetched-model picker groups entries by the first path segment of the model
+id. A group folds as one block, the select-all action becomes invert once
+everything is picked, and `groupLabels` gives a group a display name; its rows
+then read `[display name]tail`. Grouping and labels affect display only — the
+request still uses the model id.
+
 `web_search` / `web_fetch` then send to the same gateway base with the same key.
 Use the provider-id fields only if you want to pin one gateway-side search or
 fetch provider.

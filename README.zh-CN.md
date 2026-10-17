@@ -78,6 +78,10 @@ bundle patch（`cordis.patch.yml`）只插入插件行。装完重启 dsh Web。
 4. 勾选需要的模型并添加。采纳的行保留网关自己的事实，包括「等级 → 模型 id」映射。
 5. 点 **保存**，然后在对话的模型选择器里选 `omniroute` 供应商下的模型。
 
+获取模型的候选列表按模型 id 的第一个路径段分组，整组可以折叠，全选按钮在满选时切换为反选；
+`groupLabels` 给分组设置显示名，组内模型显示为「[显示名]尾段」。分组与显示名只影响展示，请求仍
+使用模型 id。
+
 `web_search` / `web_fetch` 会用同一个网关地址和同一把密钥。只有在你想固定某个网关侧搜索或抓取
 provider 时，才需要动 `web.searchProvider` / `web.fetchProvider`。
 
