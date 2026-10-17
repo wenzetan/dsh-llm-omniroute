@@ -239,7 +239,9 @@ export interface OmniRouteConfig {
    * Display-only labels for the model-list groups. A group is the first
    * `/`-delimited segment of a model id (a gateway route that names its own
    * upstream). Storage keeps the raw group name as the key, so renaming a
-   * group never touches routing, matching, or what a request sends.
+   * group never touches routing, matching, or what a request sends; the label
+   * composes into every model name the route serves (`./group.ts`), which is
+   * what the settings page rows and the model picker both show.
    */
   groupLabels?: Record<string, string>
   /** Provider-owned model-request retry policy; omission uses normal defaults. */
@@ -376,11 +378,15 @@ const configSchema = z.object({
   maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).volatile(),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS).volatile(),
   proxy: proxyField.volatile(),
+  // Arbitrary-key maps are declared as dicts, never as empty object schemas:
+  // the settings plane projects a form field key by key, so `z.object({})`
+  // would read every stored entry back as `{}` and a saved edit would look
+  // like it never happened.
   providerHints: z.object({
-    defaults: z.object({}),
-    models: z.object({}),
+    defaults: z.dict(z.string()).default({}),
+    models: z.dict(z.string()).default({}),
   }).volatile(),
-  groupLabels: z.object({}).volatile(),
+  groupLabels: z.dict(z.string()).default({}).volatile(),
   retryPolicy: RetryPolicySchema.volatile(),
   web: webField.volatile(),
 })
@@ -644,6 +650,7 @@ export function resolveAdapterOptions(config: OmniRouteConfig, environment?: Ret
       defaults: { ...config.providerHints?.defaults },
       models: { ...config.providerHints?.models },
     },
+    groupLabels: { ...config.groupLabels },
     retryPolicy: resolveRetryPolicy(config.retryPolicy, `${PKG}: retryPolicy`),
     ...config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens },
   }

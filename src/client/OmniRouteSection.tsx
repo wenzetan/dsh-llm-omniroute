@@ -34,6 +34,8 @@ import type {
   ModelsDevParamsRequest,
   ModelsDevParamsResponse,
 } from './params-types.ts'
+// 分组词汇与宿主适配器共用一份：设置页行里的名字和模型选择器里的名字因此完全一致。
+import { groupOf, groupedModelName } from '../group.ts'
 
 /**
  * One catalog entry, structurally open like the official editors: a field
@@ -275,68 +277,6 @@ function capabilitySummary(model: ModelDraft, labels: { vision: string; tools: s
   if (model.vision === true) parts.push(labels.vision)
   if (model.toolCalling === true) parts.push(labels.tools)
   return parts.length > 0 ? parts.join(' · ') : labels.none
-}
-
-/**
- * 网关合成的「不思考」别名前缀，按去掉分隔符的小写首段匹配，`no-think/…`、
- * `no_thinking-…` 这类写法都能命中。前缀属于思考等级，权威说明见
- * `src/catalog.ts` 的头注。
- */
-const NO_THINK_MARKERS: readonly string[] = ['nothink', 'nothinking', 'notthinking', 'nonthinking', 'noreasoning']
-
-/**
- * 剥掉网关合成的「不思考」前缀，取回网关真正路由的模型 id。前缀写在 id 首段，
- * 描述的是思考等级，跟供应商无关，归组之前要先去掉它。
- * @param id - 网关给出的模型 id。
- * @returns 去掉首段不思考标记后的 id；id 没有该前缀时原样返回。
- */
-function routeIdOf(id: string): string {
-  const slash = id.indexOf('/')
-  if (slash < 0) return id
-  const head = id.slice(0, slash).toLowerCase().replace(/[-_\s]/g, '')
-  return NO_THINK_MARKERS.includes(head) ? id.slice(slash + 1) : id
-}
-
-/**
- * 模型 id 归属的分组：剥掉不思考前缀以后，第一个 `/` 之前的那一段。带 `/` 的
- * id 是该网关路由自己暴露的模型；没有 `/` 的 id 是网关自己的组合模型，统一归入
- * 组名为空串的一组。
- * @param id - 网关给出的模型 id。
- * @returns 分组名；去掉前缀后不含 `/` 时为空串。
- */
-function groupOf(id: string): string {
-  const route = routeIdOf(id)
-  const slash = route.indexOf('/')
-  return slash < 0 ? '' : route.slice(0, slash)
-}
-
-/**
- * 显示名保留的尾段：最后一个 `/` 之后的部分。多个 `/` 也只截最后一段，
- * 例如 `command-code/deepseek/deepseek-v4.1-flash` 保留 `deepseek-v4.1-flash`。
- * @param id - 网关给出的模型 id。
- * @returns 最后一个路径段；id 不含 `/` 时为 id 本身。
- */
-function modelTail(id: string): string {
-  const slash = id.lastIndexOf('/')
-  return slash < 0 ? id : id.slice(slash + 1)
-}
-
-/**
- * 一行在列表里显示的名字：分组显示名加中括号前缀，再接尾段，例如
- * `[cmd]deepseek-v4.1-flash`。尾段优先取本行自己的显示名，显示名为空时退回 id
- * 尾段。分组未配置显示名时用组名本身。组合模型（id 不含 `/`）是网关自己的组合，
- * 没有分组归属，只显示尾段，不加中括号前缀。
- * @param id - 模型 id。
- * @param name - 本行配置的显示名；空串表示未配置。
- * @param labels - 已配置的分组显示名。
- * @returns 该行的显示名。
- */
-function groupDisplayName(id: string, name: string, labels: Record<string, string>): string {
-  const tail = name.length > 0 ? name : modelTail(id)
-  const group = groupOf(id)
-  if (group.length === 0) return tail
-  const label = labels[group]
-  return `[${label !== undefined && label.length > 0 ? label : group}]${tail}`
 }
 
 /** 组合组在折叠集合里的键：哨兵字符不会与真实组名相撞。 */
@@ -986,7 +926,7 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
               : (
                 <div className="omniroute-badges">
                   <span className="omniroute-modeldisplay">
-                    {groupDisplayName(textOf(model, 'id').trim(), textOf(model, 'name').trim(), groupLabels)}
+                    {groupedModelName(textOf(model, 'id').trim(), textOf(model, 'name').trim(), groupLabels)}
                   </span>
                   <span className={`omniroute-badge ${model.vision === true ? 'omniroute-badge--on' : 'omniroute-badge--off'}`}>
                     {t('capabilityVision')}

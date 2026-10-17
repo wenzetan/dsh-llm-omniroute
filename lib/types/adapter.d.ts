@@ -60,6 +60,13 @@ export interface OmniRouteConnectionOptions {
     proxyUrl?: string;
     /** Match-shaping hints for the models.dev params lookup. */
     providerHints: ProviderHints;
+    /**
+     * Display-only labels for the id groups (`./group.ts`): every model name this
+     * route serves is composed as `[label]tail` from them, so the settings page
+     * and the model picker read identically. Keys are raw group names, which is
+     * why a renamed group never touches what a request sends.
+     */
+    groupLabels: Record<string, string>;
     /** Provider-owned model-request retry policy, already resolved. */
     retryPolicy: ResolvedRetryPolicy;
     /**

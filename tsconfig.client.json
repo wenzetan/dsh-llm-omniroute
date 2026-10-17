@@ -4,7 +4,7 @@
     "lib": ["ES2023", "DOM"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "rootDir": "src/client",
+    "rootDir": "src",
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "strict": true,
@@ -16,5 +16,5 @@
     "jsx": "react-jsx",
     "skipLibCheck": true
   },
-  "include": ["src/client/**/*.ts", "src/client/**/*.tsx"]
+  "include": ["src/client/**/*.ts", "src/client/**/*.tsx", "src/group.ts"]
 }

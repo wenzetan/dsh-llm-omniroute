@@ -45,6 +45,7 @@ import {
   resolveWireModel,
 } from './catalog.ts'
 import type { OmniRouteCatalogModel, ParseCatalogOptions } from './catalog.ts'
+import { groupedModelName } from './group.ts'
 import type { OmniRouteWebOptions } from './web.ts'
 import { serializeRequest } from './serialize.ts'
 import { parseSse } from './sse.ts'
@@ -109,6 +110,13 @@ export interface OmniRouteConnectionOptions {
   proxyUrl?: string
   /** Match-shaping hints for the models.dev params lookup. */
   providerHints: ProviderHints
+  /**
+   * Display-only labels for the id groups (`./group.ts`): every model name this
+   * route serves is composed as `[label]tail` from them, so the settings page
+   * and the model picker read identically. Keys are raw group names, which is
+   * why a renamed group never touches what a request sends.
+   */
+  groupLabels: Record<string, string>
   /** Provider-owned model-request retry policy, already resolved. */
   retryPolicy: ResolvedRetryPolicy
   /**
@@ -282,11 +290,24 @@ export function normalizeBaseUrl(raw: string): string {
   return base
 }
 
-function modelInfo(provider: string, model: OmniRouteCatalogModel): LlmModelInfo {
+/**
+ * The harness-facing facts for one catalog row. The name is composed against
+ * the current group labels, so a renamed group reaches the next listing
+ * without touching the stored catalog.
+ * @param provider - the route this row is served under.
+ * @param model - the stored catalog row.
+ * @param labels - the resolved group display names.
+ * @returns the row's model info.
+ */
+function modelInfo(
+  provider: string,
+  model: OmniRouteCatalogModel,
+  labels: Record<string, string>,
+): LlmModelInfo {
   return {
     provider,
     id: model.id,
-    name: model.name ?? model.id,
+    name: groupedModelName(model.id, model.name, labels),
     ...model.description === undefined ? {} : { description: model.description },
     inputModalities: ['text'],
   }
@@ -347,7 +368,10 @@ export class OmniRouteAdapter extends LlmAdapter {
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    return Promise.resolve(this.config.options().models.map(model => modelInfo(provider, model)))
+    const connection = this.config.options()
+    return Promise.resolve(
+      connection.models.map(model => modelInfo(provider, model, connection.groupLabels)),
+    )
   }
 
   override resolveModel(
@@ -376,8 +400,13 @@ export class OmniRouteAdapter extends LlmAdapter {
       // is kept on the row (displayed by the settings page) but is not
       // promoted to a declaration until this adapter can serialize images.
       ...configured === undefined
-        ? { provider, id: model, name: model, inputModalities: ['text' as const] }
-        : modelInfo(provider, configured),
+        ? {
+          provider,
+          id: model,
+          name: groupedModelName(model, undefined, connection.groupLabels),
+          inputModalities: ['text' as const],
+        }
+        : modelInfo(provider, configured, connection.groupLabels),
       context: { contextWindow: configured?.contextWindow ?? connection.defaultContextWindow },
       // Reasoning efforts arrive as catalog facts: the gateway's own listing
       // (parsed by ./catalog.ts, which decides whether an id encodes its own
@@ -491,6 +520,9 @@ export class OmniRouteAdapter extends LlmAdapter {
     const rows = await this.catalogRows(request, signal)
     return rows.map(row => ({
       id: row.id,
+      // The raw name, never the group-composed one: the Models page adopts a
+      // discovery row into `models[]` verbatim, so a stored `[label]tail` would
+      // collect a second label when the route lists its own models.
       name: row.name ?? row.id,
       ...row.contextWindow === undefined ? {} : { contextWindow: row.contextWindow },
       ...row.maxTokens === undefined ? {} : { maxTokens: row.maxTokens },

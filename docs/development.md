@@ -38,6 +38,10 @@ npm test
 构建生成 `lib/index.js`、`lib/client.js` 与类型声明。**源码改动后需要提交对应的 `lib/` 产物**，从
 Git 安装的用户直接使用这些文件；CI 会重新构建并检查产物与提交是否一致。
 
+浏览器半由 `tsconfig.client.json` 单独编译，根目录设成 `src` 并把 `src/group.ts` 列进 `include`：
+那是宿主与浏览器半唯一共用的运行时模块（分组显示词汇），它不依赖任何宿主模块，因此可以整体打进
+浏览器 bundle；其余跨半部的形状仍在 `src/client/params-types.ts` 里镜像。
+
 ## 本地加载插件
 
 先完成构建，再把仓库链接到开发用的 web profile，使用真实绝对路径：
@@ -61,12 +65,14 @@ dsh plugin --profile web add "link:/path/to/dsh-llm-omniroute"
 | `npm run build` | 宿主、浏览器 JS 和类型声明能否生成 |
 | `npm run test:client` | Custom Provider 设置组件的交互、远程调用、状态处理与布局约定（`test/client/omniroute-section.test.tsx`） |
 | `vitest run test/catalog.test.ts` | `/v1/models` 能力映射、思考等级三段规则、折叠与 wire id 反查（纯函数，无网络） |
+| `vitest run test/group.test.ts` | 分组名、尾段与「[分组显示名]尾段」的显示名拼法（宿主与设置页共用的纯函数） |
 | `npm run test:host` | 真实 workspace 的 LLM 导出、入库快照、离线链接与 0.2.0 宿主线拒绝诊断 |
-| `node test/smoke.mjs` | 真实 Cordis 组合下的注册、能力映射、思考等级、web provider 注册与映射、设置与网关替身行为 |
+| `npm run test:settings` | 用真实 `@deepseek-ai/dsh-settings` 服务跑 `groupLabels` / `providerHints` 的 describe → mutate → describe 往返 |
+| `node test/smoke.mjs` | 真实 Cordis 组合下的注册、能力映射、思考等级、分组显示名、web provider 注册与映射、设置与网关替身行为 |
 | CI `plugin-check` | 插件清单、补丁与包结构的静态检查；hub 目录收录警告由外部仓库同步，不阻断 |
 | CI `boot` | 在隔离环境安装 tarball，启动真实 Web，检查认证流程、客户端加载清单和自有 RPC 响应 |
 
-`npm test` 依次执行客户端测试、宿主兼容检查和组合测试，不会操作真实浏览器，也不会请求真实网关。
+`npm test` 依次执行客户端测试、宿主兼容检查、设置面往返与组合测试，不会操作真实浏览器，也不会请求真实网关。
 启动页的客户端加载清单里出现插件，只说明插件已被发现，不能证明设置页在浏览器中正常工作。
 
 对真实网关的连通性（`/v1/models`、`/v1/search`、`/v1/web/fetch`）不在 `npm test` 范围内：它需要

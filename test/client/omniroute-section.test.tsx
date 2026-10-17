@@ -495,6 +495,70 @@ describe('model catalog', () => {
     expect(t('groupOther')).toBe('combos')
   })
 
+  it('renders a stored group label on its rows and saves the edited label', async () => {
+    // 存下来的分组显示名要真的作用到行上：读到的值决定行文本，改过的值随保存写回，
+    // 所以「改了显示名但没有生效」在这两处都不会发生。
+    const api = wireFace({ describeAnswer: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [{
+        ns: 'dsh-llm-omniroute',
+        schema: {},
+        value: {
+          baseURL: 'http://gw.local:3000/v1',
+          models: [{ id: 'agy/claude-sonnet-4-6' }],
+          groupLabels: { agy: 'AGY' },
+        },
+        applies: 'live',
+        secrets: [],
+        revision: 7,
+      }],
+    } })
+    render(<OmniRouteSection api={api as never} t={t} />)
+
+    expect(await screen.findByText('[AGY]claude-sonnet-4-6')).toBeTruthy()
+    const block = screen.getByLabelText(t('groupLabels'))
+    const field = block.querySelector<HTMLInputElement>('input')
+    expect(field?.value).toBe('AGY')
+
+    fireEvent.change(field as HTMLInputElement, { target: { value: 'AGY2' } })
+    expect(screen.getByText('[AGY2]claude-sonnet-4-6')).toBeTruthy()
+    fireEvent.click(screen.getByText(t('apply')))
+    await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
+    const ops = api.mutateSettings.mock.calls[0][1] as Array<{ op: string; path: string[]; value?: unknown }>
+    expect(ops.find(op => op.path[0] === 'groupLabels'))
+      .toEqual({ op: 'set', path: ['groupLabels'], value: { agy: 'AGY2' } })
+  })
+
+  it('drops every group label and unsets the field when the table is emptied', async () => {
+    const api = wireFace({ describeAnswer: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [{
+        ns: 'dsh-llm-omniroute',
+        schema: {},
+        value: {
+          models: [{ id: 'agy/claude-sonnet-4-6' }],
+          groupLabels: { agy: 'AGY' },
+        },
+        applies: 'live',
+        secrets: [],
+        revision: 3,
+      }],
+    } })
+    render(<OmniRouteSection api={api as never} t={t} />)
+
+    const field = await waitFor(() =>
+      screen.getByLabelText(`${t('groupLabels')} agy`) as HTMLInputElement)
+    fireEvent.change(field, { target: { value: '' } })
+    // 显示名清空后这一行退回组名本身。
+    expect(screen.getByText('[agy]claude-sonnet-4-6')).toBeTruthy()
+    fireEvent.click(screen.getByText(t('apply')))
+    await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
+    const ops = api.mutateSettings.mock.calls[0][1] as Array<{ op: string; path: string[] }>
+    expect(ops.find(op => op.path[0] === 'groupLabels')).toEqual({ op: 'unset', path: ['groupLabels'] })
+  })
+
   it('folds a whole candidate group from its heading and keeps the row count in view', async () => {
     const api = wireFace()
     const fetchCatalog = catalogFace([

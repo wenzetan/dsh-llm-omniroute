@@ -102,7 +102,9 @@ export interface OmniRouteConfig {
      * Display-only labels for the model-list groups. A group is the first
      * `/`-delimited segment of a model id (a gateway route that names its own
      * upstream). Storage keeps the raw group name as the key, so renaming a
-     * group never touches routing, matching, or what a request sends.
+     * group never touches routing, matching, or what a request sends; the label
+     * composes into every model name the route serves (`./group.ts`), which is
+     * what the settings page rows and the model picker both show.
      */
     groupLabels?: Record<string, string>;
     /** Provider-owned model-request retry policy; omission uses normal defaults. */
@@ -131,13 +133,13 @@ declare const configSchema: z<Schemastery.ObjectS<NoInfer<{
         url?: string | null;
     } & import("@deepseek-ai/cosmokit").Dict>, NoInfer<ProxyConfig>, "volatile">;
     providerHints: z<NoInfer<Schemastery.ObjectS<NoInfer<{
-        defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
-        models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
+        defaults: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
+        models: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
     }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
-        defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
-        models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
+        defaults: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
+        models: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
     }>>>, "volatile">;
-    groupLabels: z<NoInfer<Schemastery.ObjectS<{}>>, NoInfer<Schemastery.ObjectT<{}>>, "volatile">;
+    groupLabels: z<NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, "volatile-defined">;
     retryPolicy: z<NoInfer<RetryPolicyConfig>, NoInfer<RetryPolicyConfig>, "volatile">;
     web: z<NoInfer<{
         enabled?: boolean | null;
@@ -161,13 +163,13 @@ declare const configSchema: z<Schemastery.ObjectS<NoInfer<{
         url?: string | null;
     } & import("@deepseek-ai/cosmokit").Dict>, NoInfer<ProxyConfig>, "volatile">;
     providerHints: z<NoInfer<Schemastery.ObjectS<NoInfer<{
-        defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
-        models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
+        defaults: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
+        models: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
     }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
-        defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
-        models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
+        defaults: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
+        models: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
     }>>>, "volatile">;
-    groupLabels: z<NoInfer<Schemastery.ObjectS<{}>>, NoInfer<Schemastery.ObjectT<{}>>, "volatile">;
+    groupLabels: z<NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, "volatile-defined">;
     retryPolicy: z<NoInfer<RetryPolicyConfig>, NoInfer<RetryPolicyConfig>, "volatile">;
     web: z<NoInfer<{
         enabled?: boolean | null;
@@ -201,13 +203,13 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
         url?: string | null;
     } & import("@deepseek-ai/cosmokit").Dict>, NoInfer<ProxyConfig>, "volatile">;
     providerHints: z<NoInfer<Schemastery.ObjectS<NoInfer<{
-        defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
-        models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
+        defaults: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
+        models: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
     }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
-        defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
-        models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
+        defaults: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
+        models: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
     }>>>, "volatile">;
-    groupLabels: z<NoInfer<Schemastery.ObjectS<{}>>, NoInfer<Schemastery.ObjectT<{}>>, "volatile">;
+    groupLabels: z<NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, "volatile-defined">;
     retryPolicy: z<NoInfer<RetryPolicyConfig>, NoInfer<RetryPolicyConfig>, "volatile">;
     web: z<NoInfer<{
         enabled?: boolean | null;
@@ -231,13 +233,13 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
         url?: string | null;
     } & import("@deepseek-ai/cosmokit").Dict>, NoInfer<ProxyConfig>, "volatile">;
     providerHints: z<NoInfer<Schemastery.ObjectS<NoInfer<{
-        defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
-        models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
+        defaults: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
+        models: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
     }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
-        defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
-        models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
+        defaults: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
+        models: z<import("@deepseek-ai/cosmokit").Dict<string, string>, import("@deepseek-ai/cosmokit").Dict<string, string>, "defined">;
     }>>>, "volatile">;
-    groupLabels: z<NoInfer<Schemastery.ObjectS<{}>>, NoInfer<Schemastery.ObjectT<{}>>, "volatile">;
+    groupLabels: z<NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, "volatile-defined">;
     retryPolicy: z<NoInfer<RetryPolicyConfig>, NoInfer<RetryPolicyConfig>, "volatile">;
     web: z<NoInfer<{
         enabled?: boolean | null;

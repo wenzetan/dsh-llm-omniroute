@@ -1,8 +1,11 @@
 /**
  * Host RPC payload shapes for the browser half. Structurally the same as the
  * host's own types (the payload crosses the wire as plain JSON), mirrored here
- * because the client program compiles with `rootDir: src/client` and cannot
- * import across the directory boundary.
+ * because the browser program is built from `src/client` alone and must not
+ * pull host modules into its bundle. `src/group.ts` is the one exception: it is
+ * dependency-free display vocabulary both halves share, so the model names the
+ * settings page renders and the names the adapter serves are composed by the
+ * same code.
  */
 
 /** Supported input kinds the harness declares; this plugin's wire is text-only today. */

@@ -7,7 +7,8 @@
  * credential resolution through the credentials service only (no environment
  * fallback), the settings schema refusing sections the adapter cannot serve,
  * a volatile edit reaching the next request without re-applying the plugin,
- * and the web seam providers the gateway's own search/fetch stack backs.
+ * the group display names composing into every name the route serves, and the
+ * web seam providers the gateway's own search/fetch stack backs.
  */
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
@@ -768,6 +769,50 @@ function stubModelsListing() {
   assert.equal(sent[2].model, 'no-think/agy/claude-sonnet-4-6')
 }
 
+// ── Block L: group display names compose into every name the route serves ──
+// `groupLabels` is display-only, but the display it owns includes the model
+// list the picker reads — a label that only tinted the settings page would
+// leave the picker showing raw ids. Composition happens per listing, so a
+// renamed group reaches the next listing without re-applying the plugin.
+{
+  const ctx = new Context()
+  await ctx.plugin(LlmRuntime)
+  const fiber = await mountPlugin(ctx, {
+    models: [
+      { id: 'agy/claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+      { id: 'command-code/deepseek-v4.1-flash' },
+      { id: 'hermes-hindsight' },
+    ],
+    groupLabels: { agy: 'AGY' },
+  })
+
+  const listed = async () => (await ctx.llm.listModels('omniroute'))
+    .map(model => `${model.id} → ${model.name}`)
+  assert.deepEqual(await listed(), [
+    'agy/claude-sonnet-4-6 → [AGY]Claude Sonnet 4.6',
+    'command-code/deepseek-v4.1-flash → [command-code]deepseek-v4.1-flash',
+    'hermes-hindsight → hermes-hindsight',
+  ])
+  // The selected model resolves to the same name, so the picker and the
+  // conversation header never disagree about what a row is called.
+  const resolved = await ctx.llm.resolveModelInfo('omniroute', 'agy/claude-sonnet-4-6')
+  assert.equal(resolved.name, '[AGY]Claude Sonnet 4.6')
+  // An id the catalog does not carry is still a group member by its own id.
+  const uncatalogued = await ctx.llm.resolveModelInfo('omniroute', 'agy/claude-opus-5-5')
+  assert.equal(uncatalogued.name, '[AGY]claude-opus-5-5')
+
+  const committed = plugin.Config['~standard'].validate({
+    groupLabels: { agy: 'AGY', 'command-code': 'CMD' },
+  })
+  assert.equal(committed.issues, undefined)
+  updateVolatile(fiber.config.groupLabels, committed.value.groupLabels)
+  assert.deepEqual(await listed(), [
+    'agy/claude-sonnet-4-6 → [AGY]Claude Sonnet 4.6',
+    'command-code/deepseek-v4.1-flash → [CMD]deepseek-v4.1-flash',
+    'hermes-hindsight → hermes-hindsight',
+  ])
+}
+
 // ── Block J: the web seam providers map the gateway's search and fetch ──
 {
   const webOptions = plugin.resolveWebOptions({ snippetMaxChars: 20, fetchMaxChars: 10 }, 'http://gw.local:3000/v1')
@@ -911,4 +956,4 @@ function stubModelsListing() {
   }
 }
 
-console.log('smoke: dsh-llm-omniroute registrations, capability mapping, thinking-level rules (no-think / level-carrying ids / declared tiers), web-provider registration, credentials-service key, settings schema validation, volatile-edit propagation, ordering, display names, models.dev matching, deferred RPC channel, dead-proxy diagnostics, web search+fetch mapping, and empty-string tool-call delta hardening OK')
+console.log('smoke: dsh-llm-omniroute registrations, capability mapping, thinking-level rules (no-think / level-carrying ids / declared tiers), web-provider registration, credentials-service key, settings schema validation, volatile-edit propagation, ordering, display names, group display names on every served model name, models.dev matching, deferred RPC channel, dead-proxy diagnostics, web search+fetch mapping, and empty-string tool-call delta hardening OK')

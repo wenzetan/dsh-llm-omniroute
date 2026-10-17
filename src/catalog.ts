@@ -35,6 +35,7 @@
 
 import type { ModelModality } from '@deepseek-ai/dsh-llm'
 import type { WireModelEntry } from './types.ts'
+import { NO_THINK_MARKERS } from './group.ts'
 
 /**
  * Default case-insensitive id substrings excluding non-chat models from
@@ -63,15 +64,6 @@ export const EFFORT_RUNG: Readonly<Record<string, number>> = {
 
 /** The effort a no-thinking route is pinned to. */
 export const NO_THINK_EFFORT = 'none'
-
-/**
- * No-thinking markers, matched against the separator-stripped lowercase id so
- * `no-think/…`, `no_thinking-…`, `nothink…` and `notthinking…` all hit. Kept to
- * unambiguous spellings: a false positive would hide a model's real levels.
- */
-const NO_THINK_MARKERS: readonly string[] = [
-  'nothink', 'nothinking', 'notthinking', 'nonthinking', 'noreasoning',
-]
 
 /** Model `type` values that cannot serve chat completions. */
 const NON_CHAT_TYPES = new Set([

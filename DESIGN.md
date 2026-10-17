@@ -41,7 +41,12 @@ Remote 命名空间读写设置与凭据；模型目录和 models.dev 查询走�
 暴露标记为 volatile 的字段，写入落回 profile patch。
 
 设置页的模型目录按 id 首个路径段分组，分组可折叠，候选列表的全选在满选时切换为反选；`groupLabels`
-只改变分组显示名与行文本，不参与请求。
+只改变分组显示名与行文本，不参与请求。分组词汇（分组名、尾段、显示名拼法）由 `src/group.ts` 一处
+定义：设置页的行文本与适配器服务给模型列表的名字都按它现拼，所以改一个显示名，设置页与对话里的模型
+选择器同时生效，请求发送的 id 与匹配规则不受影响。
+
+任意键映射（`groupLabels`、`providerHints`）在 Config 里必须声明成 `z.dict`，不能写成 `z.object({})`：
+设置服务逐键投影表单字段，空对象 schema 会让存下来的整张映射读回成 `{}`。
 
 ## 代码导航
 
@@ -49,6 +54,7 @@ Remote 命名空间读写设置与凭据；模型目录和 models.dev 查询走�
 | --- | --- |
 | [src/index.ts](src/index.ts) | 配置定义与 schema 校验、最低宿主检查、服务注册、volatile 配置读取与重试策略更新、凭据解析、自有 RPC、web provider 注册 |
 | [src/catalog.ts](src/catalog.ts) | `/v1/models` 能力映射、思考等级三段规则、等级变体折叠与反向映射、展示名 |
+| [src/group.ts](src/group.ts) | 分组词汇：分组名、尾段与「[分组显示名]尾段」的显示名拼法，宿主与设置页共用 |
 | [src/adapter.ts](src/adapter.ts) | 传输与目录服务：列表、发现、参数匹配、请求发送、重试策略元数据与错误处理 |
 | [src/serialize.ts](src/serialize.ts) | 将消息和工具定义转换为网关请求 |
 | [src/sse.ts](src/sse.ts) | 将字节流拆成 SSE payload，检查结束标记 |
