@@ -12,7 +12,7 @@
 | 网关地址、模型列表、models.dev 代理、web 行为 | profile 的 Cordis patch 中 `llm-omniroute` 插件行的配置（volatile 字段） |
 | API 密钥 | dsh credentials store，固定引用名 `omniroute` |
 | 插件启用状态 | profile 的 `package.json` → `dsh.profile.bundles` |
-| web seam 指向 | 同一个 bundle patch 的 `- id: web` 覆盖（`searchProvider` / `fetchProvider`） |
+| web seam 指向 | profile 自己的 Cordis patch 里的 `- id: web` 覆盖（`searchProvider` / `fetchProvider`） |
 
 Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后 Loader 会就地更新运行中的配置
 引用，后续请求使用新值；正在进行的请求继续使用启动该请求时的配置。密钥不写入 YAML，也不通过
@@ -137,7 +137,17 @@ providerHints:
 
 ## web_search / web_fetch
 
-bundle patch 把 `web.searchProvider` / `web.fetchProvider` 都 pin 到 `omniroute`：
+`web` 是官方核心行，bundle 不允许覆盖它，因此 seam 的指向由 **profile 自己的**
+`cordis.patch.yml` 声明：
+
+```yaml
+- id: web
+  config:
+    searchProvider: omniroute
+    fetchProvider: omniroute
+```
+
+两个 provider 分别转发到：
 
 - 搜索 → `POST {baseURL}/search`（`{query, max_results, provider?}`），`results[]` 映射成 seam 的
   `sources[]`，`answer.text` 映射成 `content`；snippet 按 `web.snippetMaxChars` 截断。
@@ -145,8 +155,8 @@ bundle patch 把 `web.searchProvider` / `web.fetchProvider` 都 pin 到 `omnirou
   `{kind: 'text'}` 正文；`statusCode` 取网关 provider 报告的状态（如 Firecrawl 的
   `metadata.statusCode`），否则为 200。
 
-两条路径都用同一份 `baseURL` 与同一把密钥，浏览器不发起跨域请求。不 pin 会导致同时存在两个可用搜索
-provider，seam 报 `WEB_PROVIDER_AMBIGUOUS`。
+两条路径都用同一份 `baseURL` 与同一把密钥，浏览器不发起跨域请求。不加那两行时，seam 会同时看到
+出厂的 `deepseek-official` 与本网关两个可用搜索 provider，于是报 `WEB_PROVIDER_AMBIGUOUS`。
 
 注意：`dsh-web-search-omniroute` 这个独立的搜索插件用的是**同一个** provider id `omniroute`。两个插件
 同时安装时，启动会因重复注册而报 `WEB_DUPLICATE_PROVIDER: omniroute`；只保留一个，或者先执行

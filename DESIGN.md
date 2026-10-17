@@ -55,7 +55,7 @@ Remote 命名空间读写设置与凭据；模型目录和 models.dev 查询走�
 | [src/client/apply.ts](src/client/apply.ts) | 设置页、语言字典、样式及远程服务接线 |
 | [src/client/OmniRouteSection.tsx](src/client/OmniRouteSection.tsx) | 表单、候选模型、参数确认和保存交互 |
 | [src/client/locale.ts](src/client/locale.ts) | 中英文界面文案 |
-| [cordis.patch.yml](cordis.patch.yml) | 插入插件行，并把 web seam pin 到本网关 |
+| [cordis.patch.yml](cordis.patch.yml) | 插入插件行；web seam 的指向由 profile 自己的 patch 声明 |
 
 ## 思考等级：为什么以 id 为准
 
@@ -92,6 +92,8 @@ OmniRoute 是聚合网关，`capabilities.effort_tiers` 来自整家 provider �
 - 抓取把抽取出的 markdown 作为 `{kind: 'text'}` 返回；`statusCode` 优先取网关 provider 在
   `metadata` 里报告的状态（如 Firecrawl 的 `statusCode`），否则为 200；超过 `fetchMaxChars` 时截断
   并置 `truncated`。
+- seam 的指向（`web.searchProvider` / `web.fetchProvider`）由 profile 自己的 patch 声明。`web` 是官方
+  核心行，bundle 覆盖核心行会破坏同一 profile 里其他组合；插件只注册 provider，不假定自己被选中。
 
 ## 配置与凭据的生命周期
 

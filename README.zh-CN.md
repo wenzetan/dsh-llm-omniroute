@@ -30,8 +30,8 @@ npm install -g pnpm
 # 从本地检出安装
 dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 
-# 或直接从本仓库的 tag 安装
-dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.0-rc.2-v0.1"
+# 或直接从本仓库安装；发布 tag 之后改成 pin 该 tag
+dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#main"
 ```
 
 `dsh plugin add` 会写 profile 依赖、把 `dsh-omniroute` 追加进 `dsh.profile.bundles`，并把包装进
@@ -51,8 +51,20 @@ profile。老宿主上若 bundle 条目缺失，按下面的片段核对并补�
 }
 ```
 
-bundle patch（`cordis.patch.yml`）会插入插件行，并把 web seam 指向本网关；两个条目在缺少目标行
-的组合里会被安全跳过。装完重启 dsh Web。
+bundle patch（`cordis.patch.yml`）只插入插件行。装完重启 dsh Web。
+
+要让 `web_search` / `web_fetch` 走本网关，把 seam 指向加到 **profile 自己的**
+`cordis.patch.yml`（`web` 是官方核心行，bundle 不允许覆盖它）：
+
+```yaml
+- id: web
+  config:
+    searchProvider: omniroute
+    fetchProvider: omniroute
+```
+
+不加这两行时，seam 会看到两个可用搜索 provider（出厂的 `deepseek-official` 与
+本网关的），于是回答 `WEB_PROVIDER_AMBIGUOUS`。
 
 ## 首次使用
 
@@ -63,9 +75,8 @@ bundle patch（`cordis.patch.yml`）会插入插件行，并把 web seam 指向�
 4. 勾选需要的模型并添加。采纳的行保留网关自己的事实，包括「等级 → 模型 id」映射。
 5. 点 **保存**，然后在对话的模型选择器里选 `omniroute` 供应商下的模型。
 
-`web_search` / `web_fetch` 无需额外步骤：被 pin 的 `omniroute` web provider 会用同一个网关地址
-和同一把密钥。只有在你想固定某个网关侧搜索/抓取 provider 时，才需要动
-`web.searchProvider` / `web.fetchProvider`。
+`web_search` / `web_fetch` 会用同一个网关地址和同一把密钥。只有在你想固定某个网关侧搜索或抓取
+provider 时，才需要动 `web.searchProvider` / `web.fetchProvider`。
 
 ## 思考等级
 
@@ -105,7 +116,7 @@ bundle patch（`cordis.patch.yml`）会插入插件行，并把 web seam 指向�
 | 获取模型失败 | `/v1` 地址、密钥、网关是否支持 `/v1/models` |
 | 模型列表为空 | id 名过滤（`modelExcludePatterns`），以及条目是否声明了非 chat 的 `type` |
 | 请求报 `Model '…' is not available in the active live catalog` | 该行的 id 可能被手工改成了网关并不路由的原生 id；重新获取模型，或改选行内映射的等级 |
-| `web_search` 报 `WEB_PROVIDER_AMBIGUOUS` | 把 `web.searchProvider` pin 到 `omniroute`（bundle patch 已经这么做） |
+| `web_search` 报 `WEB_PROVIDER_AMBIGUOUS` | 在 profile patch 里把 `web.searchProvider` 指向 `omniroute` |
 | 启动报 `WEB_DUPLICATE_PROVIDER: omniroute` | 另一个已装插件占用了同一个 web provider id，已知的是 `dsh-web-search-omniroute`；两者只留一个 |
 | models.dev 下载失败 | 网络与代理设置；插件代理只作用于这次下载，宿主自身也可能套用自己的环境代理 |
 | 安装时提示 missing peer | 宿主运行时自带这些包；装完能正常启动就不必再装一份 |

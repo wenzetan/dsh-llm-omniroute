@@ -37,8 +37,8 @@ npm install -g pnpm
 # from a checkout
 dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 
-# or straight from this repository at a tag
-dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.0-rc.2-v0.1"
+# or straight from this repository; pin a published tag once one exists
+dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#main"
 ```
 
 `dsh plugin add` writes the profile dependency, appends `dsh-omniroute` to
@@ -60,9 +60,23 @@ is a JSON fragment to check, **not** a replacement for the whole file:
 }
 ```
 
-The bundle patch (`cordis.patch.yml`) mounts the plugin row and pins the web
-seam at this gateway; both entries are safe in a composition that does not have
-the targeted row. Restart dsh Web after installing.
+The bundle patch (`cordis.patch.yml`) mounts the plugin row. Restart dsh Web
+after installing.
+
+To route `web_search` / `web_fetch` through this gateway, add the seam pin to
+the **profile's own** `cordis.patch.yml` (`web` is an official core row, so a
+bundle must not override it):
+
+```yaml
+- id: web
+  config:
+    searchProvider: omniroute
+    fetchProvider: omniroute
+```
+
+Without the pin, the seam sees two usable search providers — the shipped
+`deepseek-official` one and this gateway's — and answers
+`WEB_PROVIDER_AMBIGUOUS`.
 
 ## First use
 
@@ -77,10 +91,9 @@ the targeted row. Restart dsh Web after installing.
 5. Click **Save**, then pick a model under the `omniroute` provider in the
    conversation model picker.
 
-`web_search` / `web_fetch` need no extra step: the pinned `omniroute` web
-providers send to the same gateway base with the same key. Use the
-`web.searchProvider` / `web.fetchProvider` ids only if you want to pin one
-gateway-side search or fetch provider.
+`web_search` / `web_fetch` then send to the same gateway base with the same key.
+Use the provider-id fields only if you want to pin one gateway-side search or
+fetch provider.
 
 ## Thinking levels
 
@@ -124,7 +137,7 @@ back, and the row can be edited by hand if you disagree.
 | Model discovery fails | The `/v1` base URL, the key, and gateway support for `/v1/models` |
 | Empty model list | The id-name filter (`modelExcludePatterns`) and whether the entries declare a non-chat `type` |
 | A request fails with `Model '…' is not available in the active live catalog` | The row's id may be hand-edited to a native id the gateway does not route; re-fetch the models or pick the row's mapped level |
-| `WEB_PROVIDER_AMBIGUOUS` on `web_search` | Pin `web.searchProvider: omniroute` (the bundle patch does) |
+| `WEB_PROVIDER_AMBIGUOUS` on `web_search` | Pin `web.searchProvider: omniroute` in the profile patch |
 | `WEB_DUPLICATE_PROVIDER: omniroute` at boot | Another installed plugin owns the same web provider id — `dsh-web-search-omniroute` is the known one; keep only one of them |
 | models.dev download fails | Network and proxy settings; the plugin proxy applies to that download only, and dsh may also apply its own environment proxy |
 | Missing-peer warnings during install | dsh supplies the host packages at runtime; if install and startup succeed, do not add duplicate host packages |
