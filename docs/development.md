@@ -130,7 +130,9 @@ SPA 回退的 405。插件改为注入 `connection` 与 `webServer`，并把自�
 `dsh-user-interaction` 指向 `dsh-brand`）在 0.2.1 树上没有被任何包请求，已从 `package.json` 移除。
 升级宿主时重新核查一遍，只有确实被请求且需要换名时才加回。
 
-用户 profile 升级插件时，插件目录里可能残留上一次安装自带的 `node_modules/@deepseek-ai`；模块解析
-优先使用这些旧包，最低版本检查就会拿旧版本报错。把
-`<profile>/node_modules/dsh-llm-omniroute/node_modules/@deepseek-ai` 移出插件包再重启宿主；
-`autoInstallPeers: false` 的全新安装不会生成这份副本。
+用户 profile 升级插件时，插件目录里可能残留上一次安装自带的 `node_modules/@deepseek-ai`，profile
+根目录也可能残留旧版 `@deepseek-ai/schemastery` / `cosmokit`。这些旧包会优先于宿主包被解析：前者
+让最低版本检查读到 0.2.0，后者让 `baseURLField.volatile` 在 schemastery 3.18.2 上不存在。把插件
+目录里的 `@deepseek-ai` 移出，并让 profile 根目录的 `@deepseek-ai` 指向宿主包（0.2.1 需要
+schemastery 3.18.5、cosmokit 1.8.6），再重启宿主。`autoInstallPeers: false` 的全新安装不会生成
+这些副本。
