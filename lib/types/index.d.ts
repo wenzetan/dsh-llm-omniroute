@@ -98,6 +98,13 @@ export interface OmniRouteConfig {
      * anthropic, …) apply first; these entries override and extend them.
      */
     providerHints?: ProviderHints;
+    /**
+     * Display-only labels for the model-list groups. A group is the first
+     * `/`-delimited segment of a model id (a gateway route that names its own
+     * upstream). Storage keeps the raw group name as the key, so renaming a
+     * group never touches routing, matching, or what a request sends.
+     */
+    groupLabels?: Record<string, string>;
     /** Provider-owned model-request retry policy; omission uses normal defaults. */
     retryPolicy?: RetryPolicyConfig;
     /** Gateway-backed `web_search` / `web_fetch` providers for the `ctx.web` seam. */
@@ -130,6 +137,7 @@ declare const configSchema: z<Schemastery.ObjectS<NoInfer<{
         defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
         models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
     }>>>, "volatile">;
+    groupLabels: z<NoInfer<Schemastery.ObjectS<{}>>, NoInfer<Schemastery.ObjectT<{}>>, "volatile">;
     retryPolicy: z<NoInfer<RetryPolicyConfig>, NoInfer<RetryPolicyConfig>, "volatile">;
     web: z<NoInfer<{
         enabled?: boolean | null;
@@ -159,6 +167,7 @@ declare const configSchema: z<Schemastery.ObjectS<NoInfer<{
         defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
         models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
     }>>>, "volatile">;
+    groupLabels: z<NoInfer<Schemastery.ObjectS<{}>>, NoInfer<Schemastery.ObjectT<{}>>, "volatile">;
     retryPolicy: z<NoInfer<RetryPolicyConfig>, NoInfer<RetryPolicyConfig>, "volatile">;
     web: z<NoInfer<{
         enabled?: boolean | null;
@@ -198,6 +207,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
         defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
         models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
     }>>>, "volatile">;
+    groupLabels: z<NoInfer<Schemastery.ObjectS<{}>>, NoInfer<Schemastery.ObjectT<{}>>, "volatile">;
     retryPolicy: z<NoInfer<RetryPolicyConfig>, NoInfer<RetryPolicyConfig>, "volatile">;
     web: z<NoInfer<{
         enabled?: boolean | null;
@@ -227,6 +237,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
         defaults: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
         models: z<Schemastery.ObjectS<{}>, Schemastery.ObjectT<{}>, "plain">;
     }>>>, "volatile">;
+    groupLabels: z<NoInfer<Schemastery.ObjectS<{}>>, NoInfer<Schemastery.ObjectT<{}>>, "volatile">;
     retryPolicy: z<NoInfer<RetryPolicyConfig>, NoInfer<RetryPolicyConfig>, "volatile">;
     web: z<NoInfer<{
         enabled?: boolean | null;

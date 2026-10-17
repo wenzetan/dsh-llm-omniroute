@@ -56,11 +56,11 @@ reported for a directory the container never mounted.
 Run all of these from inside `testbed/`.
 
 ```sh
-# 1) Single grid: the default host version (CI dev pin, 0.2.0-rc.2) with full L1 + L2
+# 1) Single grid: the default host version (CI dev pin, 0.2.1-rc.2) with full L1 + L2
 docker compose run --rm --build testbed
 
 # 2) Pin a host version
-DSH_VERSION=0.2.0-rc.2 docker compose run --rm --build testbed
+DSH_VERSION=0.2.1-rc.2 docker compose run --rm --build testbed
 
 # 3) Stack a companion plugin (coexistence check)
 COMPANION=dsh-quota-panel COMPANION_HOST_DIR=../../dsh-quota-panel \
@@ -70,7 +70,7 @@ COMPANION=dsh-quota-panel COMPANION_HOST_DIR=../../dsh-quota-panel \
 node matrix.mjs
 
 # 5) preserve: restore the host profile's bundle rows by name first, then install this repo's tarball
-PROFILE_MODE=preserve DSH_VERSION=0.2.0-rc.2 docker compose run --rm --build testbed
+PROFILE_MODE=preserve DSH_VERSION=0.2.1-rc.2 docker compose run --rm --build testbed
 
 # 6) Step-by-step debugging (`STEPS=all` is the default)
 STEPS=assert,seed,stage,l1,pack,profile,l2 docker compose run --rm --build testbed
@@ -250,7 +250,8 @@ but read it together with limitations 1 and 3 below.
     L2 drives the server with a curl probe instead. This environment does not modify CI and does
     not take the host's port 3080.
 12. **The default matrix follows the registry's host line.** `node matrix.mjs` resolves the
-    registry's `latest + next` by default. As of 2026-10-04, upstream `latest` and `next` are both
-    `0.2.0-rc.2` (supported), so the default matrix only covers the 0.2.0 line. When you pin an
-    older line explicitly, `0.1.7-rc.1` reports FAIL from the version guard — an expected signal,
-    not a regression. To run only the supported line: `node matrix.mjs --versions 0.2.0-rc.2`.
+    registry's `latest + next` by default. Currently upstream `latest` is `0.2.0-rc.2` and `next` is
+    `0.2.1-rc.2`: this release supports the 0.2.1 line and rejects `0.2.0-rc.2` from the version
+    guard, so that default cell is an expected FAIL — a signal, not a regression. To run only the
+    supported line: `node matrix.mjs --versions 0.2.1-rc.2`. The older `0.1.5` / `0.1.7` lines are
+    rejected as well.

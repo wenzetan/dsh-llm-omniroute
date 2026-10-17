@@ -2,8 +2,8 @@
 
 [中文使用指南](README.zh-CN.md) · [配置参考](docs/configuration.md) · [开发与发布](docs/development.md)
 
-本文描述当前代码，不作为历史开发日志。当前代码、构建依赖和 CI 针对 dsh `0.2.0-rc.2`，只支持这条
-宿主线（下限 `0.2.0-rc.2`）。
+本文描述当前代码，不作为历史开发日志。当前代码、构建依赖和 CI 针对 dsh `0.2.1-rc.2`，只支持这条
+宿主线（下限 `0.2.1-rc.2`）。
 
 ## 插件负责什么
 
@@ -14,8 +14,8 @@
 - **模型目录**：解析 `GET /v1/models` 的容量、能力与思考等级字段，折叠等级变体，产出配置页可直接
   采纳的目录行；请求只发送网关自己列出的 id。
 - **web 能力**：`ctx.web` 上的 `omniroute` 搜索/抓取 provider，分别转发到网关的
-  `POST /v1/search` 与 `POST /v1/web/fetch`，取代出厂需要 DeepSeek 凭据的 `deepseek-official`
-  与本地匿名抓取。
+  `POST /v1/search` 与 `POST /v1/web/fetch`，取代出厂的 `deepseek-official` /
+  `deepseek-search-api` 搜索与本地 `http` 抓取。
 
 网关决定可用模型、权限与实际能力；插件不内置可直接使用的模型目录，也不修改 dsh 核心。
 
@@ -75,6 +75,11 @@ OmniRoute 是聚合网关，`capabilities.effort_tiers` 来自整家 provider �
 变体 id。插件因此从不发送列表里没有的 id；`resolveWireModel` 是唯一的出口，`adapter.stream` 在
 序列化前替换 `model` 并清掉已折进 id 的 `reasoning_effort`。
 
+默认等级属于行数据，不属于请求阶段：解析器在采纳时写入（单档/最强档）。设置页的「不传」只对 id
+不绑定等级的行开放；id 绑定等级的行必须发送某个已列出的变体 id，所以 `adapter.resolveModel` 在
+没有默认等级时回退到最强档，`stream` 在收到显式「不传」时以 `INVALID_REQUEST` 拒绝，避免把裸
+原生 id 发到网关。
+
 已知代价：名字里恰好以等级词结尾的路由（`qwen-max`）会被折叠成 `qwen` + 等级 `max`。这在列表里
 无法与真实的等级后缀区分，而折叠是安全的——运行时会把该行的默认等级物化进请求，实际发送的仍是
 `qwen-max`；不认同时可在设置页手工改回。
@@ -94,6 +99,9 @@ OmniRoute 是聚合网关，`capabilities.effort_tiers` 来自整家 provider �
   并置 `truncated`。
 - seam 的指向（`web.searchProvider` / `web.fetchProvider`）由 profile 自己的 patch 声明。`web` 是官方
   核心行，bundle 覆盖核心行会破坏同一 profile 里其他组合；插件只注册 provider，不假定自己被选中。
+  0.2.1 的 `web` 行默认指向 `deepseek-official` / `http`，网页搜索设置里的 DeepSeek Search/Fetch API
+  开关会把它换成 `deepseek-search-api` / `deepseek-fetch-api`；这两个字段在 0.2.1 是 volatile，改动对
+  下一次搜索或抓取生效，不需要重启。
 
 ## 配置与凭据的生命周期
 
@@ -101,12 +109,16 @@ OmniRoute 是聚合网关，`capabilities.effort_tiers` 来自整家 provider �
 `ctx.inject` 声明自带设置页（`settings.configure({ auto: false })`）并安装 RPC，避免因加载顺序而
 漏注册。注册和样式等资源随对应的 Cordis 作用域释放。
 
-自有 RPC 通道的注册方式需要单独说明：`connection.rpc.handle(channel, handler)` 在这条宿主线上仍
-不可用（它的 `rpc` getter 捕获服务自身的 `this.ctx`，该作用域没有注入 `webServer`，内部
+自有 RPC 通道的注册方式需要单独说明：`connection.rpc.handle(channel, handler)` 在 0.1.7 到 0.2.1
+的宿主线上仍不可用（它的 `rpc` getter 捕获服务自身的 `this.ctx`，该作用域没有注入 `webServer`，内部
 `owner.webServer.register(route)` 抛错后被 effect 吞掉，通道静默缺失，浏览器只会撞上 SPA fallback
 的 405）。插件改为注入 `connection` 与 `webServer`，并把自身作用域作为 owner 传给
-`register(owner, channel, handler)`——那正是 `rpc.handle` 委托的方法。这一契约由 CI 的真实启动检查
-守护，单元测试的替身无法复现该守卫。
+`register(owner, channel, handler)`——那正是 `rpc.handle` 委托的方法；0.2.1 的 handler 还接收一个已
+认证 Peer，本插件不使用。这一契约由 CI 的真实启动检查守护，单元测试的替身无法复现该守卫。
+
+`registerConfigurableProviders` 还声明 `defaultBaseURL` 与 `baseURLEnv`，把本插件的默认端点与受信
+环境变量来源交给配置供应商目录。当前官方 Models 编辑器对本插件只显示「其余字段在
+cordis.patch.yml 中」，端点与密钥仍在本插件自己的设置页编辑。
 
 配置以 schemastery schema 声明，所有字段标记为 volatile：Loader 在 profile patch 只改动 volatile
 字段时就地更新运行中的配置引用，不重新加载插件。每次请求读取一次引用快照（`snapshotConfig`）并
@@ -150,18 +162,21 @@ OmniRoute 是聚合网关，`capabilities.effort_tiers` 来自整家 provider �
 时不 import 它，没有 web seam 的组合也能加载。类型声明由 TypeScript 生成，构建脚本会修正声明中的
 相对扩展名。JS、source map 和类型声明都提交至 `lib/`。
 
-当前依赖配置保留了四项 overrides，把 `dsh-type-meta`、`dsh-compact`、`dsh-paths`、
-`dsh-user-interaction` 别名到 `dsh-brand@0.2.0-rc.2`。这四个名字在上游 0.2.0 线仍返回 E404，但当前
-解析树并没有请求它们，因此是**防御性配置而非必需项**。
+当前依赖树没有任何 `overrides`。0.2.1 树请求的是 `dsh-compaction-*` 等实际包；旧配置里的四个别名
+（`dsh-type-meta`、`dsh-compact`、`dsh-paths`、`dsh-user-interaction` 指向 `dsh-brand`）没有被任何包
+请求，已移除。
 
 ## 版本兼容的边界
 
-入口读取宿主 `dsh-llm/package.json` 并拒绝低于 `0.2.0-rc.2` 的版本。这只能实现最低版本诊断，不能
-保证所有更高版本都兼容。ESM 具名导出还可能在入口求值之前失败，因此另有宿主导出与链接测试。
+入口读取宿主 `dsh-llm/package.json` 并拒绝低于 `0.2.1-rc.2` 的版本（包括上一线的 `0.2.0-rc.2`）。这
+只能实现最低版本诊断，不能保证所有更高版本都兼容。ESM 具名导出还可能在入口求值之前失败，因此另有
+宿主导出与链接测试。
 
-兼容性以**宿主线**为单位，而不是单个补丁号。`test/fixtures/dsh-llm-0.2.0-rc.2.exports.json` 记录
-0.2.0 线的具名导出面；`test/fixtures/dsh-llm-0.1.7-rc.1.exports.json` 保留为「上一个被拒绝宿主线」
-的对照面。宿主包在构建时是 external，不参与打包。
+兼容性以**宿主线**为单位，而不是单个补丁号。`test/fixtures/dsh-llm-0.2.1-rc.2.exports.json` 记录
+0.2.1 线的具名导出面；0.2.1-rc.2 的运行时表面与 0.2.0-rc.2 相同（新增的是纯类型导出）。
+`test/fixtures/dsh-llm-0.2.0-rc.2.exports.json` 保留为被拒绝宿主线的对照面，
+`test/fixtures/dsh-llm-0.1.7-rc.1.exports.json` 保留为最旧被拒绝宿主线的对照面。宿主包在构建时是
+external，不参与打包。
 
 插件自身的版本号跟随宿主：`<dsh 版本>-v<本插件序号>`，Git 标签是 `v<插件版本>`。
 

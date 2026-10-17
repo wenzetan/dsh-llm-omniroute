@@ -40,6 +40,7 @@ import { fetch as undiciFetch, ProxyAgent } from 'undici'
 import {
   DEFAULT_MODEL_EXCLUDE_PATTERNS,
   displayModelName,
+  highestEffort,
   parseOmniRouteCatalog,
   resolveWireModel,
 } from './catalog.ts'
@@ -357,6 +358,16 @@ export class OmniRouteAdapter extends LlmAdapter {
     const connection = this.config.options()
     const configured = connection.models.find(entry => entry.id === model)
     const defaultMaxTokens = configured?.maxTokens ?? connection.maxTokens
+    const declaredEfforts = configured?.reasoningEfforts ?? []
+    const idBound = Object.keys(configured?.effortModels ?? {}).length > 0
+    // An id-bound row must send one of the advertised ids: the bare native id
+    // is not in the gateway's live catalog. When the saved row carries no
+    // valid preset, the strongest declared level is the safe default; rows
+    // whose id does not encode a level keep no default and send no effort.
+    const defaultEffort = configured?.defaultReasoningEffort !== undefined
+      && declaredEfforts.includes(configured.defaultReasoningEffort)
+      ? configured.defaultReasoningEffort
+      : idBound ? highestEffort(declaredEfforts) : undefined
     return Promise.resolve({
       // The chat-completions wire route is text-only regardless of catalog
       // membership, so the uncatalogued fallback declares the same negative
@@ -373,23 +384,22 @@ export class OmniRouteAdapter extends LlmAdapter {
       // level) or a models.dev fallback the user adopted. A row that carries
       // them offers the effort selector, and the selected effort either rides
       // the wire as `reasoning_effort` or selects the concrete model id, per
-      // the row's effortModels map. The default is the row's configured preset
-      // and nothing else: the settings page offers "not sent" as a deliberate
-      // choice, so an absent preset must leave `defaultEffort` undeclared and
-      // let the gateway apply the model's own default. Rows without the fact
-      // keep declaring nothing — an explicit effort then rejects before
-      // provider I/O, same as before.
-      ...configured?.reasoningEfforts !== undefined && configured.reasoningEfforts.length > 0
+      // the row's effortModels map. The default is the row's configured
+      // preset; an id-bound row without one falls back to the strongest
+      // declared level, because a request without a level would have to send
+      // the native id the gateway does not carry. Other rows leave
+      // `defaultEffort` undeclared: the settings page offers "not sent" as a
+      // deliberate choice, and the request then lets the gateway apply the
+      // model's own default. Rows without the fact keep declaring nothing — an
+      // explicit effort then rejects before provider I/O, same as before.
+      ...declaredEfforts.length > 0
         ? {
           reasoning: {
-            efforts: configured.reasoningEfforts.map(effort => ({
+            efforts: declaredEfforts.map(effort => ({
               id: ReasoningEffortId(effort),
               name: effort.charAt(0).toUpperCase() + effort.slice(1),
             })),
-            ...configured.defaultReasoningEffort !== undefined
-              && configured.reasoningEfforts.includes(configured.defaultReasoningEffort)
-              ? { defaultEffort: ReasoningEffortId(configured.defaultReasoningEffort) }
-              : {},
+            ...defaultEffort === undefined ? {} : { defaultEffort: ReasoningEffortId(defaultEffort) },
           },
         }
         : {},
@@ -676,6 +686,16 @@ export class OmniRouteAdapter extends LlmAdapter {
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
     const row = connection.models.find(entry => entry.id === options.model)
+    // A row whose level lives in its id has no routable "no effort" request:
+    // the bare native id is not in the gateway's live catalog. The resolved
+    // default covers the normal path; this guard turns an explicit "not sent"
+    // choice into a clear error instead of a gateway 400.
+    if (options.reasoningEffort === undefined && Object.keys(row?.effortModels ?? {}).length > 0) {
+      throw new LlmError(
+        `OmniRoute model "${options.model}" encodes its thinking level in the model id; select one of its declared levels`,
+        'INVALID_REQUEST',
+      )
+    }
     // The level either rides the model id (a gateway variant route) or the
     // request's own `reasoning_effort`; ./catalog.ts owns which, because it is
     // the module that folded the variants in the first place. The caller's

@@ -254,16 +254,19 @@ function effortLabel(effort: string, noneLabel: string): string {
 }
 
 /**
- * 选择器的当前值：行里声明过的默认等级，没声明就是「不传」。
+ * 选择器的当前值：行里声明过的默认等级；没声明时，id 绑定等级的行回退到最强档，
+ * 因为这类行必须发送网关列出的某个 id，裸原生 id 会被网关拒绝。其余行返回
+ * {@link UNSET_EFFORT}，请求不带 `reasoning_effort`。
  * @param model - 一行模型草稿。
  * @returns 等级名，或 {@link UNSET_EFFORT}。
  */
 function presetOf(model: ModelDraft): string {
   const efforts = Array.isArray(model.reasoningEfforts) ? model.reasoningEfforts : []
-  return typeof model.defaultReasoningEffort === 'string'
-    && efforts.includes(model.defaultReasoningEffort)
-    ? model.defaultReasoningEffort
-    : UNSET_EFFORT
+  if (typeof model.defaultReasoningEffort === 'string'
+    && efforts.includes(model.defaultReasoningEffort)) {
+    return model.defaultReasoningEffort
+  }
+  return Object.keys(effortModelsOf(model)).length > 0 ? highestOf(efforts) : UNSET_EFFORT
 }
 
 /** One row's capability summary, e.g. `图片输入 · 工具调用`. */
@@ -529,7 +532,7 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
             : typeof model.defaultReasoningEffort === 'string'
               && efforts.includes(model.defaultReasoningEffort)
               ? model.defaultReasoningEffort
-              : undefined
+              : Object.keys(effortModelsOf(model)).length > 0 ? highestOf(efforts) : undefined
           // Only levels the row declares survive the write: the host's schema
           // refuses a map entry that could never be selected.
           const effortModels = Object.fromEntries(
@@ -1030,7 +1033,7 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
                             patch(index, { defaultReasoningEffort: event.target.value })
                           }}
                         >
-                          {pinsToNone(model)
+                          {isIdBoundRow(model)
                             ? null
                             : <option value={UNSET_EFFORT}>{t('effortUnset')}</option>}
                           {model.reasoningEfforts.map((effort) => (

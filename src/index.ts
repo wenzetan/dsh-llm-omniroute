@@ -77,7 +77,7 @@ export type { OmniRouteWebOptions, WebFetchFormat, WebRuntimeHooks } from './web
 export type { OmniRouteAdapterOptions, OmniRouteCatalogModel, OmniRouteConnectionOptions } from './adapter.ts'
 export type * from './types.ts'
 
-const MINIMUM_DSH_VERSION = '0.2.0-rc.2'
+const MINIMUM_DSH_VERSION = '0.2.1-rc.2'
 
 type SemverIdentifier = number | string
 interface ParsedSemver {
@@ -757,8 +757,12 @@ export function apply(ctx: Context, config: Config): void {
       displayName: 'Custom Provider',
       settingsNs: NS,
       settingsPath: [],
-      // The adapter knows this route only because configuration declared it:
-      // a self-hosted gateway it ships nothing about.
+      // The endpoint facts this route advertises to the configurable-provider
+      // directory: the same default and trusted environment variable the
+      // resolver below uses. The route still declares itself configured-only,
+      // because the adapter knows it only because configuration declared it.
+      defaultBaseURL: DEFAULT_BASE_URL,
+      baseURLEnv: [BASE_URL_ENV],
       declared: true,
     },
   ])
@@ -779,7 +783,7 @@ export function apply(ctx: Context, config: Config): void {
   //
   // The channel goes through the connection service's own `register(owner,
   // channel, handler)` rather than the `rpc.handle(channel, handler)` the
-  // type advertises. On the 0.1.7 host line `handle` is still unusable: its
+  // type advertises. On the 0.2.1 host line `handle` is still unusable: its
   // `rpc` getter captures `this.ctx`, and that captured context is the
   // connection service's own scope, which has no `webServer` injected.
   // `register` then evaluates `owner.webServer.register(route)`, cordis
@@ -796,12 +800,14 @@ export function apply(ctx: Context, config: Config): void {
   ctx.inject(['connection', 'webServer'], (cctx) => {
     const connection = cctx.get('connection') as HostConnectionHandle
     // The owner-taking overload is on the service prototype but not on
-    // `HostConnectionHandle`, so the extra shape is declared here.
+    // `HostConnectionHandle`, so the extra shape is declared here. The
+    // fourth argument is the admitted Peer the carrier now supplies; this
+    // channel answers the browser's own requests and does not branch on it.
     const registrar = connection as unknown as {
       register(
         owner: unknown,
         channel: string,
-        handler: (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>,
+        handler: (endpoint: string, payload: unknown, signal: AbortSignal, peer: unknown) => Promise<unknown>,
       ): () => Promise<void>
     }
     cctx.effect(() => registrar.register(
@@ -860,9 +866,9 @@ export function apply(ctx: Context, config: Config): void {
     }, 'dsh-llm-omniroute: web search and fetch providers')
   })
 
-  // Settings presentation policy (0.1.7 seam): configuration now projects
-  // from this plugin's own profile entry, whose Config schema marks every
-  // field volatile — the Loader commits a volatile-only edit into the running
+  // Settings presentation policy (0.2.1 seam): configuration projects from
+  // this plugin's own profile entry, whose Config schema marks every field
+  // volatile — the Loader commits a volatile-only edit into the running
   // references, and the write point validates the full Config before
   // persisting. This plugin ships its own Web page (the browser half registers
   // the `settings.section`), so it opts out of schema-generated pages; the

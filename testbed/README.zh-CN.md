@@ -50,11 +50,11 @@ docker compose build
 以下命令都在 `testbed/` 目录内执行。
 
 ```sh
-# 1) 单格：默认宿主版本（与 CI 开发 pin 一致，0.2.0-rc.2）跑完整 L1 + L2
+# 1) 单格：默认宿主版本（与 CI 开发 pin 一致，0.2.1-rc.2）跑完整 L1 + L2
 docker compose run --rm --build testbed
 
 # 2) 指定宿主版本
-DSH_VERSION=0.2.0-rc.2 docker compose run --rm --build testbed
+DSH_VERSION=0.2.1-rc.2 docker compose run --rm --build testbed
 
 # 3) 叠加对端插件（共存验证）
 COMPANION=dsh-quota-panel COMPANION_HOST_DIR=../../dsh-quota-panel \
@@ -64,7 +64,7 @@ COMPANION=dsh-quota-panel COMPANION_HOST_DIR=../../dsh-quota-panel \
 node matrix.mjs
 
 # 5) preserve：先按行名还原宿主 profile 的 bundle 行，再安装本仓库 tarball 覆盖发行版行
-PROFILE_MODE=preserve DSH_VERSION=0.2.0-rc.2 docker compose run --rm --build testbed
+PROFILE_MODE=preserve DSH_VERSION=0.2.1-rc.2 docker compose run --rm --build testbed
 
 # 6) 分步调试（`STEPS=all` 是默认值）
 STEPS=assert,seed,stage,l1,pack,profile,l2 docker compose run --rm --build testbed
@@ -216,6 +216,7 @@ bundle 组合时用 `preserve`——但请连同下面第 1、3 条限制一起�
 11. **范围限制**：不做浏览器 E2E（真实 GUI 渲染），也不做真实上游（OmniRoute 等）调用；
     L2 用 curl 探针模拟浏览器会话。本环境不改 CI、不占用宿主 3080 端口。
 12. **默认矩阵跟随 registry 的宿主线**：`node matrix.mjs` 默认解析 registry 的
-    `latest + next`。截至 2026-10-04，上游 `latest` 与 `next` 都是 `0.2.0-rc.2`（受支持），
-    因此默认矩阵只含受支持的 0.2.0 线；显式指定旧线时，`0.1.7-rc.1` 会因版本 guard 报 FAIL，
-    这是预期信号而非回归。只跑受支持线时显式给出：`node matrix.mjs --versions 0.2.0-rc.2`。
+    `latest + next`。当前上游 `latest` 是 `0.2.0-rc.2`、`next` 是 `0.2.1-rc.2`：本版本支持
+    0.2.1 线，`0.2.0-rc.2` 会被版本 guard 拒绝，因此默认矩阵里那一格预期 FAIL，这是信号而非回归。
+    只跑受支持线时显式给出：`node matrix.mjs --versions 0.2.1-rc.2`。更旧的 `0.1.5` / `0.1.7` 线
+    同样会被拒绝。

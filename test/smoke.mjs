@@ -44,7 +44,7 @@ class FakeWebServer extends Service {
 }
 
 /**
- * The 0.1.7 connection service, reproduced faithfully enough to catch a
+ * The 0.2.1 connection service, reproduced faithfully enough to catch a
  * regression. On the real package `rpc.handle` is unusable: its `rpc` getter
  * captures the service's OWN context, which injects no `webServer`, so the
  * inner `owner.webServer.register(route)` throws the cordis guard error and
@@ -219,7 +219,7 @@ function stubModelsListing() {
 
 // ── Block C: the settings schema refuses unserviceable sections ──
 {
-  // The 0.1.7 settings write path validates the plugin's full Config schema
+  // The 0.2.1 settings write path validates the plugin's full Config schema
   // (config-editor.edit → resolveConfig) before persisting, so an
   // unserviceable value must fail schema validation — not merely runtime
   // resolution — to be refused instead of stored.
@@ -396,8 +396,9 @@ function stubModelsListing() {
   })
   const resolved = await resolveModelAdapter.resolveModel('omniroute', 'qwen3-32b')
   assert.deepEqual(resolved.reasoning?.efforts.map(effort => effort.id), ['low', 'high'])
-  // No preset → the highest declared rung becomes the default.
-  assert.equal(resolved.reasoning?.defaultEffort, 'high')
+  // No preset → no default effort: the request leaves reasoning_effort off
+  // and the gateway applies the model's own default.
+  assert.equal(resolved.reasoning?.defaultEffort, undefined)
   const presetAdapter = new plugin.OmniRouteAdapter({
     options: () => ({
       baseURL: 'http://gw.local:3000/v1',
@@ -411,8 +412,37 @@ function stubModelsListing() {
     }),
     resolveApiKey: async () => 'smoke-key',
   })
-  // A preset inside the declared list wins over the highest rung.
+  // A preset inside the declared list is passed through unchanged.
   assert.equal((await presetAdapter.resolveModel('omniroute', 'm1')).reasoning?.defaultEffort, 'low')
+  const idBoundAdapter = new plugin.OmniRouteAdapter({
+    options: () => ({
+      baseURL: 'http://gw.local:3000/v1',
+      apiKeyRef: 'omniroute',
+      models: [{
+        id: 'folded',
+        reasoningEfforts: ['low', 'high'],
+        effortModels: { low: 'folded-low', high: 'folded-high' },
+      }],
+      modelExcludePatterns: [],
+      defaultContextWindow: 128_000,
+      streamIdleTimeoutMs: 300_000,
+      retryPolicy: resolveRetryPolicy(undefined, 'smoke'),
+      web: plugin.resolveWebOptions(undefined, 'http://gw.local:3000/v1'),
+    }),
+    resolveApiKey: async () => 'smoke-key',
+  })
+  // An id-bound row has no routable "no effort" request: the resolved default
+  // is the strongest advertised level, and an explicit omission fails loudly
+  // before any gateway call instead of sending the bare native id.
+  assert.equal((await idBoundAdapter.resolveModel('omniroute', 'folded')).reasoning?.defaultEffort, 'high')
+  await assert.rejects(
+    (async () => {
+      for await (const _chunk of idBoundAdapter.stream({ model: 'folded', messages: [] })) {
+        // The guard fires before the wire request.
+      }
+    })(),
+    error => error.code === 'INVALID_REQUEST' && error.message.includes('encodes its thinking level'),
+  )
   const wired = plugin.serializeRequest({ model: 'qwen3-32b', messages: [], system: undefined, tools: undefined, reasoningEffort: 'high' })
   assert.equal(wired.reasoning_effort, 'high')
   assert.equal('reasoning_effort' in plugin.serializeRequest({ model: 'qwen3-32b', messages: [] }), false)
@@ -431,7 +461,7 @@ function stubModelsListing() {
   await ctx.plugin(FakeConnection, registered)
 
   // The inject scope ran as soon as both services appeared. Loopback-only
-  // exposure is the connection service's own fence on the 0.1.7 line:
+  // exposure is the connection service's own fence on the 0.2.1 line:
   // channel registration no longer carries a per-handle authority option.
   assert.equal(registered.length, 1)
   assert.equal(registered[0].channel, '/dsh-llm-omniroute')

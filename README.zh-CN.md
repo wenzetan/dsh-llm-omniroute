@@ -15,7 +15,8 @@
   （`…-high`、`…-low`）折叠回原生 id，发送时按所选等级换成对应 id；只有 id 本身不含等级时才
   采用网关声明的 `effort_tiers`。
 - **`web_search` / `web_fetch` 走网关自己的检索栈**（`POST /v1/search`、
-  `POST /v1/web/fetch`），不再落到出厂的 `deepseek-official`（它需要 DeepSeek 凭据）。
+  `POST /v1/web/fetch`），不再落到出厂的 DeepSeek 搜索 provider（`deepseek-official`，或在网页搜索
+  设置里切换的 `deepseek-search-api`）与本地 `http` 抓取。
 
 不需要改 dsh。API 密钥存在 dsh 凭据库的固定引用 `omniroute` 下，在设置页填写、不回显。
 
@@ -24,14 +25,14 @@
 需要 Node.js 与 pnpm。宿主用 npm 安装，插件装进跑 Web 界面的 profile（通常是 `web`）：
 
 ```sh
-npm install -g @deepseek-ai/dsh@0.2.0-rc.2
+npm install -g @deepseek-ai/dsh@0.2.1-rc.2
 npm install -g pnpm
 
 # 从本地检出安装
 dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 
 # 或直接从本仓库的已发布 tag 安装
-dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.0-rc.2-v0.1"
+dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.1-rc.2-v0.1"
 ```
 
 `dsh plugin add` 会写 profile 依赖、把 `dsh-llm-omniroute` 追加进 `dsh.profile.bundles`，并把包装进
@@ -63,8 +64,10 @@ bundle patch（`cordis.patch.yml`）只插入插件行。装完重启 dsh Web。
     fetchProvider: omniroute
 ```
 
-不加这两行时，seam 会看到两个可用搜索 provider（出厂的 `deepseek-official` 与
-本网关的），于是回答 `WEB_PROVIDER_AMBIGUOUS`。
+不加这两行时，profile 的 `web` 行保留自己的选择——默认是 `deepseek-official` / `http`，打开网页搜索
+设置里的开关后换成 `deepseek-search-api` / `deepseek-fetch-api`——本网关的 provider 仍会注册，但不会
+被选中。若 profile 的 `web` 行把某一项留空而同时有多个可用 provider，seam 会回答
+`WEB_PROVIDER_AMBIGUOUS`；把两个字段都指向 `omniroute` 即可。
 
 ## 首次使用
 
@@ -94,6 +97,10 @@ provider 时，才需要动 `web.searchProvider` / `web.fetchProvider`。
 里不存在的原生 id。名字里恰好以等级词结尾的路由（`qwen-max`）同样会折叠；行内的等级映射会把
 网关 id 发回去，不认同也可以手工改行。
 
+采纳的行会写入一个默认等级（单档即该档，多档取最强档）。设置页还提供「不传（使用模型默认值）」：
+请求不带 `reasoning_effort`，由网关应用模型自己的默认值。该选项只出现在 id 不绑定等级的行上；
+id 按等级路由的行必须保留一个已列出的等级，因为裸原生 id 不在网关的 live catalog 里。
+
 ## 能力与边界
 
 | 能力 | 行为 |
@@ -116,7 +123,7 @@ provider 时，才需要动 `web.searchProvider` / `web.fetchProvider`。
 | 获取模型失败 | `/v1` 地址、密钥、网关是否支持 `/v1/models` |
 | 模型列表为空 | id 名过滤（`modelExcludePatterns`），以及条目是否声明了非 chat 的 `type` |
 | 请求报 `Model '…' is not available in the active live catalog` | 该行的 id 可能被手工改成了网关并不路由的原生 id；重新获取模型，或改选行内映射的等级 |
-| `web_search` 报 `WEB_PROVIDER_AMBIGUOUS` | 在 profile patch 里把 `web.searchProvider` 指向 `omniroute` |
+| `web_search` 报 `WEB_PROVIDER_AMBIGUOUS` | profile 的 `web` 行把 `searchProvider` 留空且同时有多个可用 provider；在 profile patch 里把 `web.searchProvider` 与 `web.fetchProvider` 指向 `omniroute` |
 | 启动报 `WEB_DUPLICATE_PROVIDER: omniroute` | 另一个已装插件占用了同一个 web provider id，已知的是 `dsh-web-search-omniroute`；两者只留一个 |
 | models.dev 下载失败 | 网络与代理设置；插件代理只作用于这次下载，宿主自身也可能套用自己的环境代理 |
 | 安装时提示 missing peer | 宿主运行时自带这些包；装完能正常启动就不必再装一份 |
@@ -138,6 +145,6 @@ env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_VALUE_1 git status
 
 ## 版本号规则
 
-插件版本跟随宿主：`<dsh 版本>-v<插件序号>`（如 `0.2.0-rc.2-v0.1`），Git tag 带 `v` 前缀。当前
-支持 dsh `0.2.0-rc.2` 宿主线，更旧的宿主会被明确拒绝；兼容性以宿主**线**为单位，
+插件版本跟随宿主：`<dsh 版本>-v<插件序号>`（如 `0.2.1-rc.2-v0.1`），Git tag 带 `v` 前缀。当前
+支持 dsh `0.2.1-rc.2` 宿主线，更旧的宿主（包括 `0.2.0-rc.2`）会被明确拒绝；兼容性以宿主**线**为单位，
 `npm run test:host` 会把实际导出面与仓库内快照比对，而不是假设兼容。

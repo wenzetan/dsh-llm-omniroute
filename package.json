@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-omniroute",
-  "version": "0.2.0-rc.2-v0.1",
+  "version": "0.2.1-rc.2-v0.1",
   "description": "OmniRoute (OpenAI-compatible aggregation gateway) adapter for the DeepSeek Harness. Provider route id 'omniroute' with display name 'Custom Provider': chat completions with gateway-declared model capabilities and thinking levels, plus the gateway's own web_search / web_fetch stack on the ctx.web seam. Host half registers the LLM adapter, the /v1/models capability mapping and the web providers; browser half adds the Custom Provider settings section to dsh web. The API key is configured on the web settings page (fixed credentials reference 'omniroute'), never read from environment variables.",
   "repository": {
     "type": "git",
@@ -68,14 +68,14 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-client-connection": ">=0.2.0-rc.2 <0.2.1",
-    "@deepseek-ai/dsh-credentials": ">=0.2.0-rc.2 <0.2.1",
-    "@deepseek-ai/dsh-launch-environment": ">=0.2.0-rc.2 <0.2.1",
-    "@deepseek-ai/dsh-llm": ">=0.2.0-rc.2 <0.2.1",
-    "@deepseek-ai/dsh-settings": ">=0.2.0-rc.2 <0.2.1",
-    "@deepseek-ai/dsh-timeout": ">=0.2.0-rc.2 <0.2.1",
-    "@deepseek-ai/dsh-web": ">=0.2.0-rc.2 <0.2.1",
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/dsh-client-connection": ">=0.2.1-rc.2 <0.2.2",
+    "@deepseek-ai/dsh-credentials": ">=0.2.1-rc.2 <0.2.2",
+    "@deepseek-ai/dsh-launch-environment": ">=0.2.1-rc.2 <0.2.2",
+    "@deepseek-ai/dsh-llm": ">=0.2.1-rc.2 <0.2.2",
+    "@deepseek-ai/dsh-settings": ">=0.2.1-rc.2 <0.2.2",
+    "@deepseek-ai/dsh-timeout": ">=0.2.1-rc.2 <0.2.2",
+    "@deepseek-ai/dsh-web": ">=0.2.1-rc.2 <0.2.2",
     "@deepseek-ai/schemastery": "*",
     "react": "^18.2.0"
   },
@@ -89,20 +89,20 @@
     "undici": "^7"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/cosmokit": "^1.8.5",
-    "@deepseek-ai/dsh-api-remotes": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-connection": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-locale": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-renderer": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-settings": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-launch-environment": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-settings": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-timeout": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-web": "0.2.0-rc.2",
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/cosmokit": "^1.8.6",
+    "@deepseek-ai/dsh-api-remotes": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-launch-environment": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-settings": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-timeout": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-web": "0.2.1-rc.2",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^18.2.0",
@@ -112,11 +112,5 @@
     "react-dom": "^18.3.1",
     "typescript": "^5.9.2",
     "vitest": "^4.1.10"
-  },
-  "overrides": {
-    "@deepseek-ai/dsh-type-meta": "npm:@deepseek-ai/dsh-brand@0.2.0-rc.2",
-    "@deepseek-ai/dsh-compact": "npm:@deepseek-ai/dsh-brand@0.2.0-rc.2",
-    "@deepseek-ai/dsh-paths": "npm:@deepseek-ai/dsh-brand@0.2.0-rc.2",
-    "@deepseek-ai/dsh-user-interaction": "npm:@deepseek-ai/dsh-brand@0.2.0-rc.2"
   }
 }

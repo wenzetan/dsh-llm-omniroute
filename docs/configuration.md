@@ -115,6 +115,11 @@ Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后
 成 `qwen` + 等级 `max`；行的默认等级即那一档，运行时会把它物化进请求，因此实际发送的仍是
 `qwen-max`。不认同时可在设置页把该行 id 改回去，并清掉 `effortModels`。
 
+采纳的行会写入一个默认等级：单档即该档，多档取最强档。设置页的默认等级选择器还提供
+「不传（使用模型默认值）」；它只适用于 id 不绑定等级的行，选中后请求不带 `reasoning_effort`，由
+网关应用模型自己的默认值。id 绑定等级的行必须保留一个网关列出的等级——裸原生 id 不在 live
+catalog 里，适配器在收到显式「不传」时会以 `INVALID_REQUEST` 拒绝这种组合。
+
 models.dev 面板只在行的等级**不是**由 id 决定时才会覆盖 `reasoningEfforts`；id 限定或 no-think 的
 行会显示「思考等级由模型 id 决定，未覆盖」，容量仍可正常被覆盖/填空。
 
@@ -155,8 +160,14 @@ providerHints:
   `{kind: 'text'}` 正文；`statusCode` 取网关 provider 报告的状态（如 Firecrawl 的
   `metadata.statusCode`），否则为 200。
 
-两条路径都用同一份 `baseURL` 与同一把密钥，浏览器不发起跨域请求。不加那两行时，seam 会同时看到
-出厂的 `deepseek-official` 与本网关两个可用搜索 provider，于是报 `WEB_PROVIDER_AMBIGUOUS`。
+两条路径都用同一份 `baseURL` 与同一把密钥，浏览器不发起跨域请求。0.2.1 起 `web` 行的
+`searchProvider` / `fetchProvider` 是 volatile 字段，网页搜索设置里的切换对下一次搜索或抓取生效，
+不需要重启宿主。
+
+不加那两行时，profile 的 `web` 行保留自己的选择：默认是 `deepseek-official` / `http`，打开网页搜索
+设置里的 DeepSeek Search/Fetch API 开关后换成 `deepseek-search-api` / `deepseek-fetch-api`；本网关的
+provider 仍会注册，但不会被选中。若 `web` 行把某一项留空而同时有多个可用 provider，seam 才会报
+`WEB_PROVIDER_AMBIGUOUS`。
 
 注意：`dsh-web-search-omniroute` 这个独立的搜索插件用的是**同一个** provider id `omniroute`。两个插件
 同时安装时，启动会因重复注册而报 `WEB_DUPLICATE_PROVIDER: omniroute`；只保留一个，或者先执行

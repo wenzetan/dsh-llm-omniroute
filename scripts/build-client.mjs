@@ -3,9 +3,10 @@
  * `window.__ModuleLoader__.load({ id, factory: (require) => {...} })`, with
  * the loader module table supplying the platform externals (react + jsx
  * runtime). This mirrors the repository-internal `clientBundle` tsdown
+ * The repository-internal `clientBundle` tsdown
  * preset (packages/client/tsdown.client.ts) and the browser module loader
- * contract (packages/client/modules/src/client/manifest.ts) of the dsh
- * 0.1.7-rc.1 line.
+ * contract (packages/client/modules/src/client/manifest.ts) of the dsh 0.2.1
+ * line.
  */
 import { build } from 'esbuild'
 
@@ -13,12 +14,12 @@ const ID = 'dsh-llm-omniroute'
 
 /**
  * Loader module-table specifiers: everything the bundle requires instead of
- * inlining. dsh 0.1.7-rc.1: the browser module table provides the shell seed
- * words (react, react/jsx-runtime, react-dom, react-dom/client, cordis,
- * client-store, ui-slots, ui-primitives) — see packages/client/web/src/
- * platform.ts. The section imports every dsh type face (`.../client`,
- * `/types`) type-only, so those are erased at bundle time and never become
- * require calls; only react and the jsx runtime stay as runtime externals.
+ * inlining. dsh 0.2.1: the browser module table provides the shell seed words
+ * (react, react/jsx-runtime, react-dom, react-dom/client, cordis, client-store,
+ * ui-slots, ui-primitives) — see packages/client/web/src/platform.ts. The
+ * section imports every dsh type face (`.../client`, `/types`) type-only, so
+ * those are erased at bundle time and never become require calls; only react
+ * and the jsx runtime stay as runtime externals.
  */
 const CLIENT_EXTERNALS = [
   'react',

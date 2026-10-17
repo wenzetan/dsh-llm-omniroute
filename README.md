@@ -18,8 +18,9 @@ The plugin registers the gateway as the **`omniroute`** provider route — shown
   folds back to the native id and sends the id matching the selected level;
   only an id that encodes no level uses the advertised `effort_tiers`.
 - **`web_search` / `web_fetch` backed by the gateway's own retrieval stack**
-  (`POST /v1/search`, `POST /v1/web/fetch`) instead of the shipped
-  `deepseek-official` search provider, which needs a DeepSeek credential.
+  (`POST /v1/search`, `POST /v1/web/fetch`) instead of the shipped DeepSeek
+  search providers (`deepseek-official` or `deepseek-search-api`) and the local
+  `http` fetcher.
 
 No dsh modification is required. The API key lives in the dsh credentials store
 under the fixed reference `omniroute`; it is configured on the settings page and
@@ -31,14 +32,14 @@ You need Node.js and pnpm. Install the host with npm, then install this plugin
 into the dsh profile that runs your Web UI (usually `web`):
 
 ```sh
-npm install -g @deepseek-ai/dsh@0.2.0-rc.2
+npm install -g @deepseek-ai/dsh@0.2.1-rc.2
 npm install -g pnpm
 
 # from a checkout
 dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 
 # or straight from this repository at the published tag
-dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.0-rc.2-v0.1"
+dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.1-rc.2-v0.1"
 ```
 
 `dsh plugin add` writes the profile dependency, appends `dsh-llm-omniroute` to
@@ -74,9 +75,12 @@ bundle must not override it):
     fetchProvider: omniroute
 ```
 
-Without the pin, the seam sees two usable search providers — the shipped
-`deepseek-official` one and this gateway's — and answers
-`WEB_PROVIDER_AMBIGUOUS`.
+Without the pin, the profile's `web` row keeps its own selection —
+`deepseek-official` / `http` by default, or the `deepseek-search-api` /
+`deepseek-fetch-api` pair when the Web Search settings switch is on — so the
+gateway's providers stay registered but unused. If the profile's `web` row
+leaves a field empty while more than one provider is usable, the seam answers
+`WEB_PROVIDER_AMBIGUOUS`; pin `omniroute` for both fields.
 
 ## First use
 
@@ -115,6 +119,14 @@ id that the listing does not carry. A route whose *name* merely ends in an
 effort word (`qwen-max`) folds too; the row's level map sends the advertised id
 back, and the row can be edited by hand if you disagree.
 
+An adopted row records a default level — the single advertised level, or the
+strongest of several. The settings page also offers **Not sent (model
+default)**, which leaves `reasoning_effort` off the request so the gateway
+applies its own default. That option exists for rows whose id does not encode a
+level; a row that routes a distinct id per level always keeps one of those
+levels selected, because the bare native id is not in the gateway's live
+catalog.
+
 ## Capabilities and limits
 
 | Feature | Behavior |
@@ -137,7 +149,7 @@ back, and the row can be edited by hand if you disagree.
 | Model discovery fails | The `/v1` base URL, the key, and gateway support for `/v1/models` |
 | Empty model list | The id-name filter (`modelExcludePatterns`) and whether the entries declare a non-chat `type` |
 | A request fails with `Model '…' is not available in the active live catalog` | The row's id may be hand-edited to a native id the gateway does not route; re-fetch the models or pick the row's mapped level |
-| `WEB_PROVIDER_AMBIGUOUS` on `web_search` | Pin `web.searchProvider: omniroute` in the profile patch |
+| `WEB_PROVIDER_AMBIGUOUS` on `web_search` | The profile's `web` row leaves `searchProvider` empty while several providers are usable; pin `web.searchProvider: omniroute` (and `fetchProvider`) in the profile patch |
 | `WEB_DUPLICATE_PROVIDER: omniroute` at boot | Another installed plugin owns the same web provider id — `dsh-web-search-omniroute` is the known one; keep only one of them |
 | models.dev download fails | Network and proxy settings; the plugin proxy applies to that download only, and dsh may also apply its own environment proxy |
 | Missing-peer warnings during install | dsh supplies the host packages at runtime; if install and startup succeed, do not add duplicate host packages |
@@ -163,7 +175,8 @@ The detailed guides are currently in Chinese:
 ## Version scheme
 
 The plugin version follows the host: `<dsh version>-v<plugin revision>`
-(`0.2.0-rc.2-v0.1`), and a Git tag carries a `v` prefix. It supports the dsh
-`0.2.0-rc.2` host line and rejects older hosts with an explicit upgrade message;
-compatibility is keyed to a host *line*, and `npm run test:host` compares the
-installed export surface against the checked-in snapshot instead of assuming.
+(`0.2.1-rc.2-v0.1`), and a Git tag carries a `v` prefix. It supports the dsh
+`0.2.1-rc.2` host line and rejects older hosts (including `0.2.0-rc.2`) with an
+explicit upgrade message; compatibility is keyed to a host *line*, and
+`npm run test:host` compares the installed export surface against the
+checked-in snapshot instead of assuming.

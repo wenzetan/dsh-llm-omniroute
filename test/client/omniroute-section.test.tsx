@@ -46,7 +46,7 @@ describe('section layout contract', () => {
   })
 })
 
-/** A wire face answering one resolved dsh-llm-omniroute section (dsh 0.1.7-rc.1 Remote envelopes). */
+/** A wire face answering one resolved dsh-llm-omniroute section (dsh 0.2.1 Remote envelopes). */
 function wireFace(overrides: Partial<{
   describeAnswer: unknown
   credentialsAnswer: unknown
@@ -256,7 +256,7 @@ describe('models.dev params update', () => {
     render(<OmniRouteSection api={api as never} t={t} fetchModelParams={paramsFace() as never} />)
 
     await waitFor(() => { expect(screen.getByLabelText(t('proxyToggle'))).toBeTruthy() })
-    // The host (dsh 0.1.7) installs a global proxy dispatcher, so the plugin
+    // The host (dsh 0.2.1) installs a global proxy dispatcher, so the plugin
     // toggle must not be presented as the only network route.
     expect(screen.getByText(t('proxyHint'))).toBeTruthy()
   })
@@ -385,9 +385,9 @@ describe('model catalog', () => {
     // (1) the folded `agy/…` route and (2) the no-thinking one.
     fireEvent.click(screen.getByLabelText(`${t('modelAdvanced')} 1`))
     const levelSelect = await waitFor(() => screen.getByLabelText(`${t('defaultEffort')} 1`) as HTMLSelectElement)
-    // 网关声明的两项，前面再加一项「不传」。
-    expect([...levelSelect.options].map(option => option.value)).toEqual(['', 'low', 'high'])
-    expect(levelSelect.options[0]?.textContent).toBe(t('effortUnset'))
+    // 折叠行的等级写在 id 上，必须选一个网关列出的等级，因此没有「不传」项。
+    expect([...levelSelect.options].map(option => option.value)).toEqual(['low', 'high'])
+    expect(levelSelect.options[0]?.textContent).toBe('low')
     expect(levelSelect.disabled).toBe(false)
     expect(levelSelect.value).toBe('high')
     expect(screen.getByText(new RegExp('agy/gemini-3.8-flash-high'))).toBeTruthy()
@@ -569,6 +569,52 @@ describe('model catalog', () => {
     expect(savedModels(api)[0]).toEqual({
       id: 'agy/gemini-3.8-flash',
       reasoningEfforts: ['low', 'high'],
+    })
+  })
+
+  it('keeps a level for a row whose id binds the level', async () => {
+    const api = wireFace({ describeAnswer: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [{
+        ns: 'dsh-llm-omniroute',
+        schema: {},
+        value: {
+          baseURL: 'http://gw.local:3000/v1',
+          models: [{
+            id: 'agy/gemini-3.8-flash',
+            reasoningEfforts: ['low', 'high'],
+            effortModels: {
+              high: 'agy/gemini-3.8-flash-high',
+              low: 'agy/gemini-3.8-flash-low',
+            },
+          }],
+        },
+        applies: 'live',
+        secrets: [],
+        revision: 7,
+      }],
+    } })
+    render(<OmniRouteSection api={api as never} t={t} />)
+
+    await waitFor(() => { expect(screen.getByText(t('fetchModels'))).toBeTruthy() })
+    fireEvent.click(screen.getByLabelText(`${t('modelAdvanced')} 1`))
+    const levelSelect = await waitFor(() => screen.getByLabelText(`${t('defaultEffort')} 1`) as HTMLSelectElement)
+    // 等级写在 id 上的行没有「不传」：裸原生 id 不在网关的 live catalog 里。
+    expect([...levelSelect.options].map(option => option.value)).toEqual(['low', 'high'])
+    expect(levelSelect.value).toBe('high')
+
+    fireEvent.click(screen.getByText(t('apply')))
+    await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
+    // 没有已保存默认等级时，写入最强档，保证请求总能发出一个网关列出的 id。
+    expect(savedModels(api)[0]).toEqual({
+      id: 'agy/gemini-3.8-flash',
+      reasoningEfforts: ['low', 'high'],
+      defaultReasoningEffort: 'high',
+      effortModels: {
+        high: 'agy/gemini-3.8-flash-high',
+        low: 'agy/gemini-3.8-flash-low',
+      },
     })
   })
 
