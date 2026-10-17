@@ -188,6 +188,14 @@ function toDrafts(source: unknown): ModelDraft[] {
       : {})
 }
 
+/** 把存储的分组显示名转成纯字符串映射，非字符串项丢弃。 */
+function toGroupLabels(source: unknown): Record<string, string> {
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) return {}
+  return Object.fromEntries(
+    Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  )
+}
+
 /**
  * The highest rung in a row's declared efforts — the dropdown's value when
  * no preset has been chosen yet.
@@ -195,6 +203,12 @@ function toDrafts(source: unknown): ModelDraft[] {
 const EFFORT_RUNG: Readonly<Record<string, number>> = {
   max: 7, xhigh: 6, high: 5, medium: 4, low: 3, minimal: 2, none: 1, default: 0,
 }
+
+/** 网关把不思考路由固定到这一等级。 */
+const NO_THINK_LEVEL = 'none'
+
+/** 「不传」在选择器里的值：不写默认等级，请求不带 reasoning_effort。 */
+const UNSET_EFFORT = ''
 
 function highestOf(efforts: readonly unknown[]): string {
   const ids = efforts.filter((effort): effort is string => typeof effort === 'string')
@@ -211,6 +225,17 @@ function effortModelsOf(model: ModelDraft): Record<string, string> {
 }
 
 /**
+ * 该行的等级是否被模型 id 固定为「不思考」：网关合成的 no-think 路由只声明
+ * none 这一项，页面上不给改动余地。
+ * @param model - 一行模型草稿。
+ * @returns true 表示等级被固定为不思考。
+ */
+function pinsToNone(model: ModelDraft): boolean {
+  const efforts = Array.isArray(model.reasoningEfforts) ? model.reasoningEfforts : []
+  return efforts.length === 1 && efforts[0] === NO_THINK_LEVEL
+}
+
+/**
  * Whether a row's thinking levels come from its model id rather than from an
  * advertised tier list — either because the gateway routes a distinct id per
  * level, or because the id is a no-thinking route pinned to `none`. Such a row
@@ -220,13 +245,25 @@ function effortModelsOf(model: ModelDraft): Record<string, string> {
  */
 function isIdBoundRow(model: ModelDraft): boolean {
   if (Object.keys(effortModelsOf(model)).length > 0) return true
-  const efforts = Array.isArray(model.reasoningEfforts) ? model.reasoningEfforts : []
-  return efforts.length === 1 && efforts[0] === 'none'
+  return pinsToNone(model)
 }
 
 /** The label one level shows in the selector; `none` reads as a word, not a token. */
 function effortLabel(effort: string, noneLabel: string): string {
   return effort === 'none' ? noneLabel : effort
+}
+
+/**
+ * 选择器的当前值：行里声明过的默认等级，没声明就是「不传」。
+ * @param model - 一行模型草稿。
+ * @returns 等级名，或 {@link UNSET_EFFORT}。
+ */
+function presetOf(model: ModelDraft): string {
+  const efforts = Array.isArray(model.reasoningEfforts) ? model.reasoningEfforts : []
+  return typeof model.defaultReasoningEffort === 'string'
+    && efforts.includes(model.defaultReasoningEffort)
+    ? model.defaultReasoningEffort
+    : UNSET_EFFORT
 }
 
 /** One row's capability summary, e.g. `图片输入 · 工具调用`. */
@@ -235,6 +272,81 @@ function capabilitySummary(model: ModelDraft, labels: { vision: string; tools: s
   if (model.vision === true) parts.push(labels.vision)
   if (model.toolCalling === true) parts.push(labels.tools)
   return parts.length > 0 ? parts.join(' · ') : labels.none
+}
+
+/**
+ * 网关合成的「不思考」别名前缀，按去掉分隔符的小写首段匹配，`no-think/…`、
+ * `no_thinking-…` 这类写法都能命中。前缀属于思考等级，权威说明见
+ * `src/catalog.ts` 的头注。
+ */
+const NO_THINK_MARKERS: readonly string[] = ['nothink', 'nothinking', 'notthinking', 'nonthinking', 'noreasoning']
+
+/**
+ * 剥掉网关合成的「不思考」前缀，取回网关真正路由的模型 id。前缀写在 id 首段，
+ * 描述的是思考等级，跟供应商无关，归组之前要先去掉它。
+ * @param id - 网关给出的模型 id。
+ * @returns 去掉首段不思考标记后的 id；id 没有该前缀时原样返回。
+ */
+function routeIdOf(id: string): string {
+  const slash = id.indexOf('/')
+  if (slash < 0) return id
+  const head = id.slice(0, slash).toLowerCase().replace(/[-_\s]/g, '')
+  return NO_THINK_MARKERS.includes(head) ? id.slice(slash + 1) : id
+}
+
+/**
+ * 模型 id 归属的分组：剥掉不思考前缀以后，第一个 `/` 之前的那一段。带 `/` 的
+ * id 是该网关路由自己暴露的模型；没有 `/` 的 id 是网关自己的组合模型，统一归入
+ * 组名为空串的一组。
+ * @param id - 网关给出的模型 id。
+ * @returns 分组名；去掉前缀后不含 `/` 时为空串。
+ */
+function groupOf(id: string): string {
+  const route = routeIdOf(id)
+  const slash = route.indexOf('/')
+  return slash < 0 ? '' : route.slice(0, slash)
+}
+
+/**
+ * 显示名保留的尾段：最后一个 `/` 之后的部分。多个 `/` 也只截最后一段，
+ * 例如 `command-code/deepseek/deepseek-v4.1-flash` 保留 `deepseek-v4.1-flash`。
+ * @param id - 网关给出的模型 id。
+ * @returns 最后一个路径段；id 不含 `/` 时为 id 本身。
+ */
+function modelTail(id: string): string {
+  const slash = id.lastIndexOf('/')
+  return slash < 0 ? id : id.slice(slash + 1)
+}
+
+/**
+ * 一行在列表里显示的名字：分组显示名加中括号前缀，再接尾段，例如
+ * `[cmd]deepseek-v4.1-flash`。尾段优先取本行自己的显示名，显示名为空时退回 id
+ * 尾段。分组未配置显示名时用组名本身。组合模型（id 不含 `/`）是网关自己的组合，
+ * 没有分组归属，只显示尾段，不加中括号前缀。
+ * @param id - 模型 id。
+ * @param name - 本行配置的显示名；空串表示未配置。
+ * @param labels - 已配置的分组显示名。
+ * @returns 该行的显示名。
+ */
+function groupDisplayName(id: string, name: string, labels: Record<string, string>): string {
+  const tail = name.length > 0 ? name : modelTail(id)
+  const group = groupOf(id)
+  if (group.length === 0) return tail
+  const label = labels[group]
+  return `[${label !== undefined && label.length > 0 ? label : group}]${tail}`
+}
+
+/** 组合组在折叠集合里的键：哨兵字符不会与真实组名相撞。 */
+const COMBO_GROUP_KEY = '\u0000combo'
+
+/**
+ * 一个分组在折叠集合里的键。组名为空串表示组合组，换成哨兵键，避免与
+ * 名字恰好为空的真实组共用状态。
+ * @param group - 分组名。
+ * @returns 折叠集合的键。
+ */
+function groupKeyOf(group: string): string {
+  return group.length === 0 ? COMBO_GROUP_KEY : group
 }
 
 /** Buffer key for one capacity field; the row half moves when rows do. */
@@ -259,6 +371,8 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
   const [baseURL, setBaseURL] = useState('')
   const [keyDraft, setKeyDraft] = useState('')
   const [models, setModels] = useState<ModelDraft[]>([])
+  /** 分组显示名：键为组名，只影响展示，不会改写 id 或请求内容。 */
+  const [groupLabels, setGroupLabels] = useState<Record<string, string>>({})
   // Rows carry an id and a name; capacities stay folded behind the row's own
   // disclosure rather than crowding every row with four inputs.
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set())
@@ -271,6 +385,8 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
   const [notice, setNotice] = useState<string | undefined>(undefined)
   const [candidates, setCandidates] = useState<readonly CatalogModel[] | undefined>(undefined)
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
+  // 候选分组默认展开；折叠整组只影响这一次挑选，组键见 groupKeyOf。
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(new Set())
   /** Proxy draft for the models.dev download; persisted with the section. */
   const [proxyEnabled, setProxyEnabled] = useState(false)
   const [proxyUrl, setProxyUrl] = useState<string>(DEFAULT_PROXY_URL)
@@ -316,6 +432,7 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
       setRevision(section.revision)
       setBaseURL(typeof value.baseURL === 'string' ? value.baseURL : '')
       setModels(toDrafts(value.models))
+      setGroupLabels(toGroupLabels(value.groupLabels))
       const proxy = (value.proxy ?? {}) as { enabled?: unknown; url?: unknown }
       setProxyEnabled(proxy.enabled === true)
       if (typeof proxy.url === 'string' && proxy.url.length > 0) setProxyUrl(proxy.url)
@@ -384,6 +501,14 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
         path: ['proxy'],
         value: { enabled: proxyEnabled, url: proxyUrl.trim().length > 0 ? proxyUrl.trim() : DEFAULT_PROXY_URL },
       })
+      // 分组显示名是纯展示配置：只保留有非空键值的条目，全部为空时删除该字段。
+      const labels = Object.fromEntries(
+        Object.entries(groupLabels)
+          .map(([group, label]) => [group.trim(), label.trim()] as const)
+          .filter(([group, label]) => group.length > 0 && label.length > 0),
+      )
+      if (Object.keys(labels).length > 0) ops.push({ op: 'set', path: ['groupLabels'], value: labels })
+      else ops.push({ op: 'unset', path: ['groupLabels'] })
       ops.push({
         op: 'set',
         path: ['models'],
@@ -392,13 +517,19 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
           const name = textOf(model, 'name').trim()
           const contextWindow = numberOf(model, 'contextWindow')
           const maxTokens = numberOf(model, 'maxTokens')
-          const efforts = Array.isArray(model.reasoningEfforts)
+          const listed = Array.isArray(model.reasoningEfforts)
             ? model.reasoningEfforts.filter((effort): effort is string => typeof effort === 'string' && effort.length > 0)
             : []
-          const preset = typeof model.defaultReasoningEffort === 'string'
-            && efforts.includes(model.defaultReasoningEffort)
-            ? model.defaultReasoningEffort
-            : undefined
+          // A no-thinking route is pinned by the gateway: no matter what the
+          // draft holds, the write keeps the single level it is fixed to.
+          const pinned = pinsToNone(model)
+          const efforts = pinned ? [NO_THINK_LEVEL] : listed
+          const preset = pinned
+            ? NO_THINK_LEVEL
+            : typeof model.defaultReasoningEffort === 'string'
+              && efforts.includes(model.defaultReasoningEffort)
+              ? model.defaultReasoningEffort
+              : undefined
           // Only levels the row declares survive the write: the host's schema
           // refuses a map entry that could never be selected.
           const effortModels = Object.fromEntries(
@@ -444,6 +575,7 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
     setBusy(true)
     setErrorText(undefined)
     setCandidates(undefined)
+    setCollapsedGroups(new Set())
     try {
       const key = keyDraft.trim()
       // The plugin's own host channel, not `remote.llm.discoverModels`: the
@@ -520,6 +652,16 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
     setPicked(current => {
       const next = new Set(current)
       if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }
+
+  // 折叠整组：一个网关目录动辄几十条、七八个分组，勾选前先收起不相干的分组，
+  // 目标分组才留在视野里。折叠只关掉那一组的列表，勾选状态不受影响。
+  const toggleGroup = (key: string): void => {
+    setCollapsedGroups(current => {
+      const next = new Set(current)
+      if (!next.delete(key)) next.add(key)
       return next
     })
   }
@@ -692,6 +834,24 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
     setEditing(current => reindexOnRemove(current, index))
   }
 
+  /** 当前配置里出现过的分组：去重排序；组合组（空组名）不进显示名编辑表。 */
+  const groups = [...new Set(
+    models.map(model => groupOf(textOf(model, 'id').trim())).filter(group => group.length > 0),
+  )].sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
+
+  /** 候选按分组切分，组内保持既有的 id 顺序。 */
+  const candidateGroups: Array<[string, CatalogModel[]]> = []
+  if (candidates !== undefined) {
+    const byGroup = new Map<string, CatalogModel[]>()
+    for (const model of candidates) {
+      const group = groupOf(model.id)
+      const bucket = byGroup.get(group)
+      if (bucket === undefined) byGroup.set(group, [model])
+      else bucket.push(model)
+    }
+    candidateGroups.push(...byGroup)
+  }
+
   if (status === 'loading') return <section className="omniroute-section" aria-label={t('nav')}><p className="omniroute-hint">…</p></section>
   if (status === 'error') {
     return (
@@ -734,6 +894,33 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
         />
       </div>
 
+      {/* 代理只服务 models.dev 参数下载，与模型目录无关，因此单独成块，
+          不再挤在模型列表标题下方。 */}
+      <section className="omniroute-block" aria-label={t('proxySection')}>
+        <span className="omniroute-block-title">{t('proxySection')}</span>
+        <div className="omniroute-proxyrow">
+          <label>
+            <input
+              type="checkbox" checked={proxyEnabled}
+              aria-label={t('proxyToggle')}
+              onChange={(event) => { setProxyEnabled(event.target.checked) }}
+            />
+            {t('proxyToggle')}
+          </label>
+          {proxyEnabled
+            ? (
+              <input
+                className="omniroute-input" type="text"
+                aria-label={t('proxyUrl')} placeholder={DEFAULT_PROXY_URL}
+                value={proxyUrl}
+                onChange={(event) => { setProxyUrl(event.target.value) }}
+              />
+            )
+            : null}
+        </div>
+        <p className="omniroute-hint">{t('proxyHint')}</p>
+      </section>
+
       <section className="omniroute-catalog" aria-label={t('models')}>
         <div className="omniroute-catalog-head">
           <span className="omniroute-catalog-title">{t('models')}</span>
@@ -758,27 +945,6 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
             </button>
           </div>
         </div>
-        <div className="omniroute-proxyrow">
-          <label>
-            <input
-              type="checkbox" checked={proxyEnabled}
-              aria-label={t('proxyToggle')}
-              onChange={(event) => { setProxyEnabled(event.target.checked) }}
-            />
-            {t('proxyToggle')}
-          </label>
-          {proxyEnabled
-            ? (
-              <input
-                className="omniroute-input" type="text"
-                aria-label={t('proxyUrl')} placeholder={DEFAULT_PROXY_URL}
-                value={proxyUrl}
-                onChange={(event) => { setProxyUrl(event.target.value) }}
-              />
-            )
-            : null}
-        </div>
-        <p className="omniroute-hint">{t('proxyHint')}</p>
         {models.length === 0 ? <p className="omniroute-empty">{t('modelsEmpty')}</p> : null}
         {models.map((model, index) => (
           <div key={index} className="omniroute-entry">
@@ -811,6 +977,22 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
                 <IconTrash />
               </button>
             </div>
+            {/* 能力徽标直接落在行上，列表态即可读到，不必逐行展开披露。 */}
+            {textOf(model, 'id').trim().length === 0
+              ? null
+              : (
+                <div className="omniroute-badges">
+                  <span className="omniroute-modeldisplay">
+                    {groupDisplayName(textOf(model, 'id').trim(), textOf(model, 'name').trim(), groupLabels)}
+                  </span>
+                  <span className={`omniroute-badge ${model.vision === true ? 'omniroute-badge--on' : 'omniroute-badge--off'}`}>
+                    {t('capabilityVision')}
+                  </span>
+                  <span className={`omniroute-badge ${model.toolCalling === true ? 'omniroute-badge--on' : 'omniroute-badge--off'}`}>
+                    {t('capabilityToolCalling')}
+                  </span>
+                </div>
+              )}
             {expanded.has(index)
               ? (
                 <div className="omniroute-modeladvanced">
@@ -841,15 +1023,16 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
                         <select
                           className="omniroute-select"
                           aria-label={`${t('defaultEffort')} ${String(index + 1)}`}
-                          title={t('defaultEffortHint')}
-                          value={typeof model.defaultReasoningEffort === 'string'
-                            && model.reasoningEfforts.includes(model.defaultReasoningEffort)
-                            ? model.defaultReasoningEffort
-                            : highestOf(model.reasoningEfforts)}
+                          title={pinsToNone(model) ? t('effortForcedNone') : t('defaultEffortHint')}
+                          disabled={pinsToNone(model)}
+                          value={presetOf(model)}
                           onChange={(event) => {
                             patch(index, { defaultReasoningEffort: event.target.value })
                           }}
                         >
+                          {pinsToNone(model)
+                            ? null
+                            : <option value={UNSET_EFFORT}>{t('effortUnset')}</option>}
                           {model.reasoningEfforts.map((effort) => (
                             <option key={effort} value={effort}>{effortLabel(effort, t('effortNone'))}</option>
                           ))}
@@ -901,6 +1084,35 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
         </button>
       </section>
 
+      {groups.length === 0
+        ? null
+        : (
+          <section className="omniroute-block" aria-label={t('groupLabels')}>
+            <span className="omniroute-block-title">{t('groupLabels')}</span>
+            <p className="omniroute-hint">{t('groupDisplayHint')}</p>
+            {groups.map(group => (
+              <div key={group} className="omniroute-grouplabel-row">
+                <span className="omniroute-grouplabel-name">{group}</span>
+                <input
+                  className="omniroute-input" type="text"
+                  aria-label={`${t('groupLabels')} ${group}`}
+                  placeholder={t('groupLabelPlaceholder')}
+                  value={groupLabels[group] ?? ''}
+                  onChange={(event) => {
+                    const next = event.target.value
+                    setGroupLabels(current => {
+                      const copy = { ...current }
+                      if (next.length === 0) delete copy[group]
+                      else copy[group] = next
+                      return copy
+                    })
+                  }}
+                />
+              </div>
+            ))}
+          </section>
+        )}
+
       {candidates === undefined ? null : (
         <div className="omniroute-candidates" ref={candidatesRef}>
           <div className="omniroute-candidates-head">
@@ -912,34 +1124,61 @@ export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
                 onChange={toggleAll}
               />
               {' '}
-              {t('fetchSelectAll')}
+              {allPicked ? t('fetchInvert') : t('fetchSelectAll')}
             </label>
           </div>
-          <ul>
-            {candidates.map(model => (
-              <li key={model.id}>
-                <label>
-                  <input
-                    type="checkbox" checked={picked.has(model.id)}
-                    onChange={() => { toggle(model.id) }}
-                  />
-                  {' '}
-                  {model.id}{model.name === undefined || model.name === model.id ? '' : ` (${model.name})`}
-                  {model.reasoningEfforts === undefined || model.reasoningEfforts.length === 0
-                    ? ''
-                    : ` · ${t('modelReasoning')}: ${model.reasoningEfforts.map(effort => effortLabel(effort, t('effortNone'))).join('/')}`}
-                  {model.contextWindow === undefined ? '' : ` · ${t('contextWindow')} ${formatCapacity(model.contextWindow)}`}
-                  {model.vision === true ? ` · ${t('capabilityVision')}` : ''}
-                  {model.toolCalling === false ? '' : model.toolCalling === true ? ` · ${t('capabilityToolCalling')}` : ''}
-                </label>
-              </li>
-            ))}
-          </ul>
+          <div className="omniroute-candidates-list">
+            {candidateGroups.map(([group, rows]) => {
+              const key = groupKeyOf(group)
+              const label = group.length === 0 ? t('groupOther') : (groupLabels[group] ?? group)
+              const open = !collapsedGroups.has(key)
+              return (
+                <div key={key} className="omniroute-candidates-group">
+                  {/* 分组标题即折叠开关：整组一次收起或展开，计数留在标题上，
+                      收起后仍能看出这组有多少条。 */}
+                  <button
+                    type="button" className="omniroute-candidategroup-toggle"
+                    aria-expanded={open}
+                    aria-label={t('groupToggle').replace('{group}', label)}
+                    onClick={() => { toggleGroup(key) }}
+                  >
+                    <IconChevron open={open} />
+                    <span className="omniroute-candidategroup-name">{label}</span>
+                    <span className="omniroute-candidategroup-count">{rows.length}</span>
+                  </button>
+                  {open
+                    ? (
+                      <ul>
+                        {rows.map(model => (
+                          <li key={model.id}>
+                            <label>
+                              <input
+                                type="checkbox" checked={picked.has(model.id)}
+                                onChange={() => { toggle(model.id) }}
+                              />
+                              {' '}
+                              {model.id}{model.name === undefined || model.name === model.id ? '' : ` (${model.name})`}
+                              {model.reasoningEfforts === undefined || model.reasoningEfforts.length === 0
+                                ? ''
+                                : ` · ${t('modelReasoning')}: ${model.reasoningEfforts.map(effort => effortLabel(effort, t('effortNone'))).join('/')}`}
+                              {model.contextWindow === undefined ? '' : ` · ${t('contextWindow')} ${formatCapacity(model.contextWindow)}`}
+                              {model.vision === true ? ` · ${t('capabilityVision')}` : ''}
+                              {model.toolCalling === false ? '' : model.toolCalling === true ? ` · ${t('capabilityToolCalling')}` : ''}
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                    : null}
+                </div>
+              )
+            })}
+          </div>
           <div className="omniroute-candidates-footer">
             <button type="button" className="omniroute-button omniroute-button--primary" disabled={picked.size === 0} onClick={adopt}>
               {t('fetchAdopt')}
             </button>
-            <button type="button" className="omniroute-button" onClick={() => { setCandidates(undefined); setPicked(new Set()) }}>
+            <button type="button" className="omniroute-button" onClick={() => { setCandidates(undefined); setPicked(new Set()); setCollapsedGroups(new Set()) }}>
               {t('fetchCancel')}
             </button>
           </div>

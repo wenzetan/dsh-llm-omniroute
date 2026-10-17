@@ -40,7 +40,6 @@ import { fetch as undiciFetch, ProxyAgent } from 'undici'
 import {
   DEFAULT_MODEL_EXCLUDE_PATTERNS,
   displayModelName,
-  highestEffort,
   parseOmniRouteCatalog,
   resolveWireModel,
 } from './catalog.ts'
@@ -374,9 +373,10 @@ export class OmniRouteAdapter extends LlmAdapter {
       // level) or a models.dev fallback the user adopted. A row that carries
       // them offers the effort selector, and the selected effort either rides
       // the wire as `reasoning_effort` or selects the concrete model id, per
-      // the row's effortModels map. The default is the row's configured
-      // preset, falling back to the strongest declared rung, so switching into
-      // reasoning mode selects a level automatically. Rows without the fact
+      // the row's effortModels map. The default is the row's configured preset
+      // and nothing else: the settings page offers "not sent" as a deliberate
+      // choice, so an absent preset must leave `defaultEffort` undeclared and
+      // let the gateway apply the model's own default. Rows without the fact
       // keep declaring nothing — an explicit effort then rejects before
       // provider I/O, same as before.
       ...configured?.reasoningEfforts !== undefined && configured.reasoningEfforts.length > 0
@@ -389,7 +389,7 @@ export class OmniRouteAdapter extends LlmAdapter {
             ...configured.defaultReasoningEffort !== undefined
               && configured.reasoningEfforts.includes(configured.defaultReasoningEffort)
               ? { defaultEffort: ReasoningEffortId(configured.defaultReasoningEffort) }
-              : { defaultEffort: ReasoningEffortId(highestEffort(configured.reasoningEfforts) ?? '') },
+              : {},
           },
         }
         : {},

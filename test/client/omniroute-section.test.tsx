@@ -34,12 +34,15 @@ describe('section layout contract', () => {
     // 这些数值来自运行中页面上的实测：宿主自带的按钮 28px 高、8px 圆角，模型行卡片
     // 12px/14px 内边距配 20px 圆角，新增按钮 44px 高、16px 圆角。
     expect(SECTION_CSS).toContain('.omniroute-section p { margin: 0; }')
-    expect(SECTION_CSS).toMatch(/\.omniroute-entry \{[\s\S]*?border-radius: 20px/)
+    expect(SECTION_CSS).toMatch(/\.omniroute-entry \{[\s\S]*?border-radius: var\(--dsw-radius-xl\)/)
     expect(SECTION_CSS).toMatch(/\.omniroute-addmodel \{[\s\S]*?height: 44px/)
     expect(SECTION_CSS).toMatch(/\.omniroute-linkbutton \{[\s\S]*?height: 28px;[\s\S]*?border-radius: 8px;/)
     expect(SECTION_CSS).toMatch(/\.omniroute-input \{[\s\S]*?height: 28px/)
     // 候选列表必须有界并自行滚动，否则几十个网关模型会把后续控件推到很远的下方。
-    expect(SECTION_CSS).toMatch(/\.omniroute-candidates ul \{[\s\S]*?max-height: 320px; overflow-y: auto;/)
+    expect(SECTION_CSS).toMatch(/\.omniroute-candidates-list \{[\s\S]*?max-height: 320px; overflow-y: auto;/)
+    // 分组标题就是折叠开关，高度与行内小按钮一致，条数右对齐且用等宽数字。
+    expect(SECTION_CSS).toMatch(/\.omniroute-candidategroup-toggle \{[\s\S]*?height: 28px;[\s\S]*?border-radius: 8px;/)
+    expect(SECTION_CSS).toMatch(/\.omniroute-candidategroup-count \{[\s\S]*?tabular-nums/)
   })
 })
 
@@ -382,7 +385,10 @@ describe('model catalog', () => {
     // (1) the folded `agy/…` route and (2) the no-thinking one.
     fireEvent.click(screen.getByLabelText(`${t('modelAdvanced')} 1`))
     const levelSelect = await waitFor(() => screen.getByLabelText(`${t('defaultEffort')} 1`) as HTMLSelectElement)
-    expect([...levelSelect.options].map(option => option.value)).toEqual(['low', 'high'])
+    // 网关声明的两项，前面再加一项「不传」。
+    expect([...levelSelect.options].map(option => option.value)).toEqual(['', 'low', 'high'])
+    expect(levelSelect.options[0]?.textContent).toBe(t('effortUnset'))
+    expect(levelSelect.disabled).toBe(false)
     expect(levelSelect.value).toBe('high')
     expect(screen.getByText(new RegExp('agy/gemini-3.8-flash-high'))).toBeTruthy()
 
@@ -391,6 +397,10 @@ describe('model catalog', () => {
     const noneSelect = await waitFor(() => screen.getByLabelText(`${t('defaultEffort')} 2`) as HTMLSelectElement)
     expect(noneSelect.value).toBe('none')
     expect(noneSelect.options[0]?.textContent).toBe(t('effortNone'))
+    // 该路由被网关固定为不思考，等级不给改动。
+    expect(noneSelect.disabled).toBe(true)
+    expect([...noneSelect.options].map(option => option.value)).toEqual(['none'])
+    expect(noneSelect.title).toBe(t('effortForcedNone'))
     // Both disclosures are open, and both routes are id-bound: the folded one
     // shows its level → id map, the no-thinking one the plain notice.
     expect(screen.getAllByText(new RegExp(t('effortIdBound')))).toHaveLength(2)
@@ -416,6 +426,149 @@ describe('model catalog', () => {
       toolCalling: true,
       reasoningEfforts: ['none'],
       defaultReasoningEffort: 'none',
+    })
+  })
+
+  it('files a no-thinking route under its real provider, not under the synthetic prefix', async () => {
+    // The gateway synthesizes `no-think/<provider>/<model>` ids and pins them to
+    // none. The prefix names a thinking level, not a provider, so such a row has
+    // to land in its provider's group instead of a `no-think` group of its own.
+    const api = wireFace({ describeAnswer: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [{
+        ns: 'dsh-llm-omniroute',
+        schema: {},
+        value: {
+          baseURL: 'http://gw.local:3000/v1',
+          models: [
+            { id: 'no-think/agy/claude-sonnet-4-6' },
+            { id: 'no-think/command-code/claude-opus-5-5' },
+          ],
+        },
+        applies: 'live',
+        secrets: [],
+        revision: 7,
+      }],
+    } })
+    render(<OmniRouteSection
+      api={api as never} t={t}
+      fetchModelParams={paramsFace() as never} fetchCatalog={catalogFace([]) as never}
+    />)
+
+    const block = await waitFor(() => screen.getByLabelText(t('groupLabels')))
+    expect([...block.querySelectorAll('.omniroute-grouplabel-name')].map(node => node.textContent))
+      .toEqual(['agy', 'command-code'])
+    // The row reads as its provider's model, with the level prefix dropped.
+    expect(screen.getByText('[agy]claude-sonnet-4-6')).toBeTruthy()
+    expect(screen.getByText('[command-code]claude-opus-5-5')).toBeTruthy()
+    expect(screen.queryByText('[no-think]claude-sonnet-4-6')).toBeNull()
+  })
+
+  it('shows a combo model by its plain id while a grouped model keeps the bracket prefix', async () => {
+    // 组合模型 id 不含 `/`，由网关自己拼装，没有分组归属，所以不加中括号前缀；
+    // 有归属的行写作 [分组显示名]模型末段。分组显示名编辑表只列真实分组。
+    const api = wireFace({ describeAnswer: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [{
+        ns: 'dsh-llm-omniroute',
+        schema: {},
+        value: {
+          baseURL: 'http://gw.local:3000/v1',
+          models: [{ id: 'hermes-hindsight' }, { id: 'agy/claude-sonnet-4-6' }],
+        },
+        applies: 'live',
+        secrets: [],
+        revision: 7,
+      }],
+    } })
+    render(<OmniRouteSection api={api as never} t={t} />)
+
+    expect(await screen.findByText('hermes-hindsight')).toBeTruthy()
+    expect(screen.queryByText(`[${t('groupOther')}]hermes-hindsight`)).toBeNull()
+    expect(screen.getByText('[agy]claude-sonnet-4-6')).toBeTruthy()
+    const block = screen.getByLabelText(t('groupLabels'))
+    expect([...block.querySelectorAll('.omniroute-grouplabel-name')].map(node => node.textContent))
+      .toEqual(['agy'])
+    // 组合组的英文类别名。
+    expect(t('groupOther')).toBe('combos')
+  })
+
+  it('folds a whole candidate group from its heading and keeps the row count in view', async () => {
+    const api = wireFace()
+    const fetchCatalog = catalogFace([
+      { id: 'agy/claude-sonnet-4-6' },
+      { id: 'agy/gemini-3.8-flash' },
+      { id: 'command-code/deepseek-v4.1-flash' },
+      { id: 'hermes-hindsight' },
+    ])
+    const { container } = render(<OmniRouteSection
+      api={api as never} t={t}
+      fetchModelParams={paramsFace() as never} fetchCatalog={fetchCatalog as never}
+    />)
+
+    await waitFor(() => { expect(screen.getByText(t('fetchModels'))).toBeTruthy() })
+    fireEvent.click(screen.getByText(t('fetchModels')))
+    await waitFor(() => { expect(screen.getByText(t('fetchAdopt'))).toBeTruthy() })
+
+    const headings = (): HTMLButtonElement[] =>
+      [...container.querySelectorAll<HTMLButtonElement>('.omniroute-candidategroup-toggle')]
+    // 标题即开关：分组名与条数同排，组合组排在末位。
+    expect(headings().map(node => node.textContent)).toEqual(['agy2', 'command-code1', 'combos1'])
+    expect(headings()[0].getAttribute('aria-expanded')).toBe('true')
+    expect(headings()[0].getAttribute('aria-label')).toBe(t('groupToggle').replace('{group}', 'agy'))
+
+    // 收起一整组：组内复选框离开视野，标题与条数留在原处，别的分组不受影响。
+    fireEvent.click(headings()[0])
+    expect(headings()[0].getAttribute('aria-expanded')).toBe('false')
+    expect(headings()[0].textContent).toBe('agy2')
+    expect(container.querySelectorAll('.omniroute-candidates-list li')).toHaveLength(2)
+    expect(container.querySelectorAll('.omniroute-candidates-list input[type="checkbox"]'))
+      .toHaveLength(2)
+    expect(headings()[1].getAttribute('aria-expanded')).toBe('true')
+
+    // 再点一次把该组放回来，三条 agy 之外的行都没有被折叠状态牵动。
+    fireEvent.click(headings()[0])
+    expect(headings()[0].getAttribute('aria-expanded')).toBe('true')
+    expect(container.querySelectorAll('.omniroute-candidates-list li')).toHaveLength(4)
+  })
+
+  it('writes no preset when the level is left unset', async () => {
+    const api = wireFace({ describeAnswer: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [{
+        ns: 'dsh-llm-omniroute',
+        schema: {},
+        value: {
+          baseURL: 'http://gw.local:3000/v1',
+          models: [{
+            id: 'agy/gemini-3.8-flash',
+            reasoningEfforts: ['low', 'high'],
+            defaultReasoningEffort: 'high',
+          }],
+        },
+        applies: 'live',
+        secrets: [],
+        revision: 7,
+      }],
+    } })
+    render(<OmniRouteSection api={api as never} t={t} />)
+
+    await waitFor(() => { expect(screen.getByText(t('fetchModels'))).toBeTruthy() })
+    fireEvent.click(screen.getByLabelText(`${t('modelAdvanced')} 1`))
+    const levelSelect = await waitFor(() => screen.getByLabelText(`${t('defaultEffort')} 1`) as HTMLSelectElement)
+    expect(levelSelect.value).toBe('high')
+    fireEvent.change(levelSelect, { target: { value: '' } })
+    expect(levelSelect.value).toBe('')
+
+    fireEvent.click(screen.getByText(t('apply')))
+    await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
+    // 选「不传」后这一行不写默认等级，请求不带 reasoning_effort，交给模型自己决定。
+    expect(savedModels(api)[0]).toEqual({
+      id: 'agy/gemini-3.8-flash',
+      reasoningEfforts: ['low', 'high'],
     })
   })
 

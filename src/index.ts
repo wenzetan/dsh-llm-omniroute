@@ -235,6 +235,13 @@ export interface OmniRouteConfig {
    * anthropic, …) apply first; these entries override and extend them.
    */
   providerHints?: ProviderHints
+  /**
+   * Display-only labels for the model-list groups. A group is the first
+   * `/`-delimited segment of a model id (a gateway route that names its own
+   * upstream). Storage keeps the raw group name as the key, so renaming a
+   * group never touches routing, matching, or what a request sends.
+   */
+  groupLabels?: Record<string, string>
   /** Provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
   /** Gateway-backed `web_search` / `web_fetch` providers for the `ctx.web` seam. */
@@ -373,6 +380,7 @@ const configSchema = z.object({
     defaults: z.object({}),
     models: z.object({}),
   }).volatile(),
+  groupLabels: z.object({}).volatile(),
   retryPolicy: RetryPolicySchema.volatile(),
   web: webField.volatile(),
 })
@@ -420,6 +428,7 @@ function snapshotConfig(config: Config): OmniRouteConfig {
   const baseURL = plain<string>(config.baseURL.get())
   const maxTokens = plain<number>(config.maxTokens.get())
   const providerHints = plain<ProviderHints>(config.providerHints.get())
+  const groupLabels = plain<Record<string, string>>(config.groupLabels.get())
   const retryPolicy = plain<RetryPolicyConfig>(config.retryPolicy.get())
   const web = plain<OmniRouteWebConfig>(config.web.get())
   return {
@@ -433,6 +442,7 @@ function snapshotConfig(config: Config): OmniRouteConfig {
       plain<number>(config.streamIdleTimeoutMs.get()) ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS,
     proxy: plain<ProxyConfig>(config.proxy.get()) ?? { enabled: false, url: DEFAULT_PROXY_URL },
     ...providerHints === undefined ? {} : { providerHints },
+    ...groupLabels === undefined ? {} : { groupLabels },
     ...retryPolicy === undefined ? {} : { retryPolicy },
     ...web === undefined ? {} : { web },
   }

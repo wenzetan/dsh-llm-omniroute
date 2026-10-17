@@ -113,8 +113,9 @@ export const SECTION_CSS = `
 .omniroute-empty { color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
 .omniroute-entry {
   display: flex; flex-direction: column; gap: 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 20px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  background: var(--dsw-alias-settings-card-fill);
+  border-radius: var(--dsw-radius-xl);
   padding: 12px 14px;
 }
 .omniroute-modelrow {
@@ -165,7 +166,9 @@ export const SECTION_CSS = `
 }
 .omniroute-addmodel:disabled { opacity: 0.4; cursor: default; }
 .omniroute-candidates {
-  border: 1px solid var(--dsw-alias-border-l2); border-radius: 20px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  background: var(--dsw-alias-settings-card-fill);
+  border-radius: var(--dsw-radius-xl);
   padding: 14px; margin-bottom: 16px;
 }
 .omniroute-candidates-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -181,9 +184,33 @@ export const SECTION_CSS = `
 /* The fetched list is bounded and scrolls on its own: a gateway catalog runs to
    dozens of entries, and an unbounded list would push every following control
    far below the panel. */
+.omniroute-candidates-list { max-height: 320px; overflow-y: auto; }
+.omniroute-candidates-group { padding: 2px 0 6px; }
+/* The group heading doubles as the disclosure control: one click folds the whole
+   group, and the count stays on the heading so a folded group still reports its
+   size. */
+.omniroute-candidategroup-toggle {
+  box-sizing: border-box; width: 100%; display: flex; align-items: center;
+  gap: 6px; height: 28px; padding: 0 8px 0 2px; margin: 6px 0 0;
+  border: none; border-radius: 8px; background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit; font-size: 12px; line-height: 18px; font-weight: 500;
+  text-align: left; cursor: pointer;
+}
+.omniroute-candidategroup-toggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+.omniroute-candidategroup-name {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.omniroute-candidategroup-count {
+  flex: none; font-size: 11px; line-height: 18px;
+  color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums;
+}
 .omniroute-candidates ul {
-  list-style: none; padding: 0; margin: 10px 0;
-  max-height: 320px; overflow-y: auto;
+  list-style: none; padding: 0; margin: 4px 0 0;
 }
 .omniroute-candidates li { padding: 3px 0; font-size: 13px; line-height: 20px; }
 .omniroute-candidates-footer { display: flex; align-items: center; gap: 8px; }
@@ -201,7 +228,9 @@ export const SECTION_CSS = `
   font: inherit; font-size: 13px; max-width: 240px;
 }
 .omniroute-params {
-  border: 1px solid var(--dsw-alias-border-l2); border-radius: 20px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  background: var(--dsw-alias-settings-card-fill);
+  border-radius: var(--dsw-radius-xl);
   padding: 14px; margin-bottom: 16px;
 }
 .omniroute-params-title { font-size: 14px; line-height: 22px; font-weight: 500; color: var(--dsw-alias-label-primary); }
@@ -229,6 +258,58 @@ export const SECTION_CSS = `
 .omniroute-params-unmatched { color: var(--dsw-alias-label-dimmed); font-size: 12px; line-height: 18px; }
 .omniroute-params-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .omniroute-submit { align-self: flex-start; margin-top: 12px; }
+/* Blocks the model entries do not cover: the network block (the models.dev
+   download proxy, which has nothing to do with the catalog) and the group
+   display-name editor. Same card shell as a model entry. */
+.omniroute-block {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; margin-bottom: 16px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  background: var(--dsw-alias-settings-card-fill);
+  border-radius: var(--dsw-radius-xl);
+}
+.omniroute-block-title {
+  display: block; font-size: 14px; line-height: 22px; font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+/* Capability badges ride the row itself, so the list reads at a glance
+   instead of only after one row's disclosure is open. The shell matches the
+   host's own row-tag rule: a 0.5px outlined pill at caption size, an
+   annotation on the row rather than a second title. */
+.omniroute-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.omniroute-badge {
+  flex: none; padding: 1px 6px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-xs);
+  font-size: 11px; line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+/* A supported capability reads heavier and its outline firms up; an unsupported
+   one stays at the host row-tag weight. Both keep the host's label-secondary as
+   the floor: label-tertiary measures 3.7:1 on the light card and would drop the
+   11px caption below the 4.5:1 text minimum. */
+.omniroute-badge--on {
+  border-color: var(--dsw-alias-border-l4);
+  color: var(--dsw-alias-label-primary);
+}
+.omniroute-badge--off { color: var(--dsw-alias-label-secondary); }
+/* 一行在选择器里显示的名字：分组显示名加中括号前缀，再接 id 尾段。它是这一行的
+   主体信息，故用次级文字色，比旁边的能力徽标更重。 */
+.omniroute-modeldisplay {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary);
+  font-family: var(--ds-font-family-code); word-break: break-all;
+}
+/* One row per discovered group in the display-name editor. */
+.omniroute-grouplabel-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center; gap: 8px;
+}
+.omniroute-grouplabel-name {
+  font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary);
+  font-family: var(--ds-font-family-code);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 `
 
 /** Required services (cordis fiber inject): the slots/locale/connection faces and the host remotes. */
