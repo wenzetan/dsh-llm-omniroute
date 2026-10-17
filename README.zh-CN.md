@@ -131,6 +131,7 @@ id 按等级路由的行必须保留一个已列出的等级，因为裸原生 i
 | 启动报 `WEB_DUPLICATE_PROVIDER: omniroute` | 另一个已装插件占用了同一个 web provider id，已知的是 `dsh-web-search-omniroute`；两者只留一个 |
 | models.dev 下载失败 | 网络与代理设置；插件代理只作用于这次下载，宿主自身也可能套用自己的环境代理 |
 | 安装时提示 missing peer | 宿主运行时自带这些包；装完能正常启动就不必再装一份 |
+| 启动报插件要求 `dsh >= 0.2.1-rc.2`，但宿主已经更新 | 插件目录里残留了旧安装自带的宿主包：把 `<profile>/node_modules/dsh-llm-omniroute/node_modules/@deepseek-ai` 移走，重启 dsh Web |
 
 ## 环境注意事项
 

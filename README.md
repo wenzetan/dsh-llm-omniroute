@@ -159,6 +159,7 @@ catalog.
 | `WEB_DUPLICATE_PROVIDER: omniroute` at boot | Another installed plugin owns the same web provider id — `dsh-web-search-omniroute` is the known one; keep only one of them |
 | models.dev download fails | Network and proxy settings; the plugin proxy applies to that download only, and dsh may also apply its own environment proxy |
 | Missing-peer warnings during install | dsh supplies the host packages at runtime; if install and startup succeed, do not add duplicate host packages |
+| Startup reports the plugin needs `dsh >= 0.2.1-rc.2` while the host is newer | An older install left its own host packages under the plugin: move `<profile>/node_modules/dsh-llm-omniroute/node_modules/@deepseek-ai` aside and restart dsh Web |
 
 ## Environment notes
 
