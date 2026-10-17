@@ -24,7 +24,7 @@ Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后
 
 ```yaml
 - id: dsh-llm-omniroute
-  name: dsh-dsh-llm-omniroute
+  name: dsh-llm-omniroute
   config:
     baseURL: http://127.0.0.1:20128/v1
     models:

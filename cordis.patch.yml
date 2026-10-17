@@ -1,4 +1,4 @@
-# dsh-dsh-llm-omniroute bundle patch
+# dsh-llm-omniroute bundle patch
 #
 # One entry: `insert` mounts the plugin row. The host half registers the
 # `omniroute` provider route on ctx.llm (display name "Custom Provider") and,
@@ -22,4 +22,4 @@
 
 - insert:
     - id: dsh-llm-omniroute
-      name: dsh-dsh-llm-omniroute
+      name: dsh-llm-omniroute
