@@ -1,10 +1,10 @@
 {
-  "self": "dsh-llm-newapi",
+  "self": "dsh-omniroute",
   "companion": "dsh-quota-panel",
-  "clientBundles": ["dsh-llm-newapi/client.js", "dsh-quota-panel/client.js"],
+  "clientBundles": ["dsh-omniroute/client.js", "dsh-quota-panel/client.js"],
   "rpcProbes": [
     {
-      "path": "/llm-newapi/ci-probe",
+      "path": "/llm-omniroute/ci-probe",
       "method": "ci-probe",
       "rpcId": "combo-self",
       "expectOk": false,

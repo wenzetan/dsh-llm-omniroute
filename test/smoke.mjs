@@ -1,11 +1,13 @@
 /**
  * Composition smoke test: mount LlmRuntime + this plugin through real
  * cordis Contexts (no network), then assert the provider-side surface —
- * route registration, configurable-provider directory entry, chat-only
- * discovery filtering over a stubbed gateway listing, credential resolution
- * through the credentials service only (no environment fallback), the
- * settings schema refusing sections the adapter cannot serve, and a volatile
- * edit reaching the next request without re-applying the plugin.
+ * route registration, configurable-provider directory entry, capability
+ * mapping and chat-only filtering over a stubbed gateway listing, the
+ * thinking-level rules (no-think ids, level-carrying ids, declared tiers),
+ * credential resolution through the credentials service only (no environment
+ * fallback), the settings schema refusing sections the adapter cannot serve,
+ * a volatile edit reaching the next request without re-applying the plugin,
+ * and the web seam providers the gateway's own search/fetch stack backs.
  */
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
@@ -70,6 +72,28 @@ class FakeConnection extends Service {
   }
 }
 
+/**
+ * Minimal web seam: records the providers the plugin registers. The real
+ * service also owns selection and error codes, which the plugin never touches.
+ */
+class FakeWeb extends Service {
+  constructor(ctx) {
+    super(ctx, 'web')
+    this.searchProviders = []
+    this.fetchProviders = []
+  }
+
+  registerSearchProvider(provider) {
+    this.searchProviders.push(provider)
+    return () => {}
+  }
+
+  registerFetchProvider(provider) {
+    this.fetchProviders.push(provider)
+    return () => {}
+  }
+}
+
 async function mountPlugin(ctx, config = {}) {
   return ctx.plugin({
     name: plugin.name,
@@ -94,6 +118,16 @@ function stubModelsListing() {
         { id: 'bge-reranker-v2-m3' },
         { id: 'Qwen/Reranker-Flash' },
         { id: 'gemini-2.5-pro' },
+        // Capability-shaped entries: a non-chat model whose listing says so,
+        // and a chat model that discloses capacities and vision.
+        { id: 'sfc/Qwen3-Embedding-8B', type: 'embedding', supported_endpoints: ['embeddings'] },
+        {
+          id: 'vendor/vision-chat',
+          context_length: 200_000,
+          max_output_tokens: 64_000,
+          input_modalities: ['text', 'image'],
+          capabilities: { tool_calling: true, vision: true, effort_tiers: ['low', 'high'] },
+        },
       ],
     }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
@@ -111,21 +145,21 @@ function stubModelsListing() {
 
   assert.deepEqual(
     ctx.llm.listProviders().map(provider => ({ id: provider.id, name: provider.name })),
-    [{ id: 'newapi', name: 'NewAPI' }],
+    [{ id: 'omniroute', name: 'Custom Provider' }],
   )
 
   const directory = ctx.llm.listConfigurableProviders()
   assert.equal(directory.length, 1)
-  assert.equal(directory[0].provider, 'newapi')
-  assert.equal(directory[0].displayName, 'NewAPI')
-  assert.equal(directory[0].settingsNs, 'llm-newapi')
+  assert.equal(directory[0].provider, 'omniroute')
+  assert.equal(directory[0].displayName, 'Custom Provider')
+  assert.equal(directory[0].settingsNs, 'llm-omniroute')
   assert.deepEqual(directory[0].settingsPath, [])
   assert.equal(directory[0].declared, true)
 
   const { asked, restore } = stubModelsListing()
   let discovered
   try {
-    discovered = await ctx.llm.discoverModels('llm-newapi', {
+    discovered = await ctx.llm.discoverModels('llm-omniroute', {
       baseURL: 'http://gw.local:3000/v1/',
       apiKey: 'smoke-key',
     })
@@ -137,8 +171,15 @@ function stubModelsListing() {
   assert.equal(asked.auth, 'Bearer smoke-key')
   assert.deepEqual(
     discovered.map(model => model.id),
-    ['deepseek-chat', 'gemini-2.5-pro'],
+    ['deepseek-chat', 'gemini-2.5-pro', 'vendor/vision-chat'],
   )
+  // The listing's own capability facts reach the discovery shape; the
+  // declaration stays text-only because this wire route cannot carry images.
+  const visionChat = discovered.find(model => model.id === 'vendor/vision-chat')
+  assert.equal(visionChat.contextWindow, 200_000)
+  assert.equal(visionChat.maxTokens, 64_000)
+  assert.deepEqual(visionChat.inputModalities, ['text'])
+  assert.equal(visionChat.name, 'Vision Chat[vendor]')
 
   // HMR safety: disposing the fiber removes the route and the directory entry.
   await fiber.dispose()
@@ -154,22 +195,22 @@ function stubModelsListing() {
   await ctx.plugin(LlmRuntime)
   await mountPlugin(ctx)
   await assert.rejects(
-    ctx.llm.discoverModels('llm-newapi', { baseURL: 'http://gw.local:3000/v1' }),
+    ctx.llm.discoverModels('llm-omniroute', { baseURL: 'http://gw.local:3000/v1' }),
     (error) => error.code === 'MISSING_CREDENTIAL'
-      && error.message.includes('NewAPI settings page')
+      && error.message.includes('Custom Provider settings page')
       && !error.message.includes('export'),
   )
 
-  // With the service holding the fixed 'newapi' reference, discovery rides
+  // With the service holding the fixed 'omniroute' reference, discovery rides
   // the stored value as the bearer token.
   const ctx2 = new Context()
   await ctx2.plugin(LlmRuntime)
-  await ctx2.plugin(FakeCredentials, { newapi: 'stored-key' })
+  await ctx2.plugin(FakeCredentials, { omniroute: 'stored-key' })
   await mountPlugin(ctx2)
   const { asked, restore } = stubModelsListing()
   try {
-    const found = await ctx2.llm.discoverModels('llm-newapi', { provider: 'newapi' })
-    assert.equal(found.length, 2)
+    const found = await ctx2.llm.discoverModels('llm-omniroute', { provider: 'omniroute' })
+    assert.equal(found.length, 3)
   } finally {
     restore()
   }
@@ -201,11 +242,11 @@ function stubModelsListing() {
   // rather than snapshotting them at apply time.
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
-  await ctx.plugin(FakeCredentials, { newapi: 'block-c-key' })
+  await ctx.plugin(FakeCredentials, { omniroute: 'block-c-key' })
   const fiber = await mountPlugin(ctx, { baseURL: 'http://first-gw:9000/v1' })
   const first = stubModelsListing()
   try {
-    await ctx.llm.discoverModels('llm-newapi', { provider: 'newapi' })
+    await ctx.llm.discoverModels('llm-omniroute', { provider: 'omniroute' })
   } finally {
     first.restore()
   }
@@ -216,7 +257,7 @@ function stubModelsListing() {
   updateVolatile(fiber.config.baseURL, committed.value.baseURL)
   const second = stubModelsListing()
   try {
-    await ctx.llm.discoverModels('llm-newapi', { provider: 'newapi' })
+    await ctx.llm.discoverModels('llm-omniroute', { provider: 'omniroute' })
   } finally {
     second.restore()
   }
@@ -246,7 +287,7 @@ function stubModelsListing() {
   assert.equal(settings.policies.length, 1, 'exactly one presentation policy must be registered')
   assert.equal(settings.policies[0].presentation.auto, false,
     'the plugin ships its own page, so schema-generated pages must be off')
-  assert.equal(settings.policies[0].owner.name, 'llm-newapi',
+  assert.equal(settings.policies[0].owner.name, 'llm-omniroute',
     'the policy must name the plugin fiber it belongs to')
 }
 
@@ -254,7 +295,7 @@ function stubModelsListing() {
 {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
-  await ctx.plugin(FakeCredentials, { newapi: 'key-d' })
+  await ctx.plugin(FakeCredentials, { omniroute: 'key-d' })
   await mountPlugin(ctx)
 
   // Discovery sorts by id and derives routed display names from the last path segment.
@@ -269,13 +310,19 @@ function stubModelsListing() {
   }), { status: 200, headers: { 'content-type': 'application/json' } })
   let discovered
   try {
-    discovered = await ctx.llm.discoverModels('llm-newapi', { provider: 'newapi' })
+    discovered = await ctx.llm.discoverModels('llm-omniroute', { provider: 'omniroute' })
   } finally {
     globalThis.fetch = originalFetch
   }
-  assert.deepEqual(discovered.map(m => m.id), ['deepseek-chat', 'qwen/qwen-max', 'zhipu/glm-5.3'])
+  // `qwen/qwen-max` folds to the native id even though its OWN NAME ends in
+  // that token: a gateway suffix and a model named `…-max` are
+  // indistinguishable in the listing, and the declared convention wins. The
+  // fold is safe because a single advertised level becomes the row's default,
+  // which the runtime materializes into the request — so the id actually sent
+  // is the advertised `qwen/qwen-max` again.
+  assert.deepEqual(discovered.map(m => m.id), ['deepseek-chat', 'qwen/qwen', 'zhipu/glm-5.3'])
   assert.equal(discovered.find(m => m.id === 'zhipu/glm-5.3').name, 'GLM 5.3[zhipu]')
-  assert.equal(discovered.find(m => m.id === 'qwen/qwen-max').name, 'Qwen Max')
+  assert.equal(discovered.find(m => m.id === 'qwen/qwen').name, 'Qwen Max')
 
   // Name generation from ids: last / segment with the verbatim prefix in
   // brackets, dashes to spaces, first letters capitalized with brand
@@ -334,36 +381,38 @@ function stubModelsListing() {
 
   // A catalog row with efforts offers the selector, and an explicit effort
   // rides the wire as reasoning_effort.
-  const resolveModelAdapter = new plugin.NewApiAdapter({
+  const resolveModelAdapter = new plugin.OmniRouteAdapter({
     options: () => ({
       baseURL: 'http://gw.local:3000/v1',
-      apiKeyRef: 'newapi',
+      apiKeyRef: 'omniroute',
       models: [{ id: 'qwen3-32b', reasoningEfforts: ['low', 'high'] }],
       modelExcludePatterns: [],
       defaultContextWindow: 128_000,
       streamIdleTimeoutMs: 300_000,
       retryPolicy: resolveRetryPolicy(undefined, 'smoke'),
+      web: plugin.resolveWebOptions(undefined, 'http://gw.local:3000/v1'),
     }),
     resolveApiKey: async () => 'smoke-key',
   })
-  const resolved = await resolveModelAdapter.resolveModel('newapi', 'qwen3-32b')
+  const resolved = await resolveModelAdapter.resolveModel('omniroute', 'qwen3-32b')
   assert.deepEqual(resolved.reasoning?.efforts.map(effort => effort.id), ['low', 'high'])
   // No preset → the highest declared rung becomes the default.
   assert.equal(resolved.reasoning?.defaultEffort, 'high')
-  const presetAdapter = new plugin.NewApiAdapter({
+  const presetAdapter = new plugin.OmniRouteAdapter({
     options: () => ({
       baseURL: 'http://gw.local:3000/v1',
-      apiKeyRef: 'newapi',
+      apiKeyRef: 'omniroute',
       models: [{ id: 'm1', reasoningEfforts: ['low', 'high'], defaultReasoningEffort: 'low' }],
       modelExcludePatterns: [],
       defaultContextWindow: 128_000,
       streamIdleTimeoutMs: 300_000,
       retryPolicy: resolveRetryPolicy(undefined, 'smoke'),
+      web: plugin.resolveWebOptions(undefined, 'http://gw.local:3000/v1'),
     }),
     resolveApiKey: async () => 'smoke-key',
   })
   // A preset inside the declared list wins over the highest rung.
-  assert.equal((await presetAdapter.resolveModel('newapi', 'm1')).reasoning?.defaultEffort, 'low')
+  assert.equal((await presetAdapter.resolveModel('omniroute', 'm1')).reasoning?.defaultEffort, 'low')
   const wired = plugin.serializeRequest({ model: 'qwen3-32b', messages: [], system: undefined, tools: undefined, reasoningEffort: 'high' })
   assert.equal(wired.reasoning_effort, 'high')
   assert.equal('reasoning_effort' in plugin.serializeRequest({ model: 'qwen3-32b', messages: [] }), false)
@@ -385,7 +434,7 @@ function stubModelsListing() {
   // exposure is the connection service's own fence on the 0.1.7 line:
   // channel registration no longer carries a per-handle authority option.
   assert.equal(registered.length, 1)
-  assert.equal(registered[0].channel, '/llm-newapi')
+  assert.equal(registered[0].channel, '/llm-omniroute')
 
   // Unknown endpoints answer the error envelope without any network use.
   const answer = await registered[0].handler('nope', {}, new AbortController().signal)
@@ -415,19 +464,20 @@ function stubModelsListing() {
 {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
-  await ctx.plugin(FakeCredentials, { newapi: 'key-h' })
+  await ctx.plugin(FakeCredentials, { omniroute: 'key-h' })
   // A built-in-style route that officially serves gwmax-1 — a bare id under
   // no built-in family prefix, so the registry channel (not the hint list)
   // is what can flag it.
-  const officialAdapter = new plugin.NewApiAdapter({
+  const officialAdapter = new plugin.OmniRouteAdapter({
     options: () => ({
       baseURL: 'http://official.local/v1',
-      apiKeyRef: 'newapi',
+      apiKeyRef: 'omniroute',
       models: [{ id: 'gwmax-1' }],
       modelExcludePatterns: [],
       defaultContextWindow: 128_000,
       streamIdleTimeoutMs: 300_000,
       retryPolicy: resolveRetryPolicy(undefined, 'smoke'),
+      web: plugin.resolveWebOptions(undefined, 'http://gw.local:3000/v1'),
     }),
     resolveApiKey: async () => 'unused',
   })
@@ -462,15 +512,16 @@ function stubModelsListing() {
 
 // ── Block F: a dead proxy names the proxy, not the plugin-proxy remedy ──
 {
-  const adapter = new plugin.NewApiAdapter({
+  const adapter = new plugin.OmniRouteAdapter({
     options: () => ({
       baseURL: 'http://gw.local:3000/v1',
-      apiKeyRef: 'newapi',
+      apiKeyRef: 'omniroute',
       models: [],
       modelExcludePatterns: [],
       defaultContextWindow: 128_000,
       streamIdleTimeoutMs: 300_000,
       retryPolicy: resolveRetryPolicy(undefined, 'smoke'),
+      web: plugin.resolveWebOptions(undefined, 'http://gw.local:3000/v1'),
     }),
     resolveApiKey: async () => 'smoke-key',
   })
@@ -500,15 +551,16 @@ function stubModelsListing() {
 // Both shapes ride the stream path end to end — adapter.stream → fetch
 // stub → parseSse → translate.
 {
-  const adapter = new plugin.NewApiAdapter({
+  const adapter = new plugin.OmniRouteAdapter({
     options: () => ({
       baseURL: 'http://gw.local:3000/v1',
-      apiKeyRef: 'newapi',
+      apiKeyRef: 'omniroute',
       models: [],
       modelExcludePatterns: [],
       defaultContextWindow: 128_000,
       streamIdleTimeoutMs: 300_000,
       retryPolicy: resolveRetryPolicy(undefined, 'smoke'),
+      web: plugin.resolveWebOptions(undefined, 'http://gw.local:3000/v1'),
     }),
     resolveApiKey: async () => 'smoke-key',
   })
@@ -557,6 +609,254 @@ function stubModelsListing() {
   assert.equal(chunks.at(-1).reason.kind, 'tool-calls')
 }
 
+// ── Block I: the thinking-level rules decide both the catalog and the wire ──
+// Three shapes the gateway advertises, all present in the live catalog:
+//   * per-level variant ids (`-high`/`-low`) — the level IS the id, so the row
+//     folds to the native id and the request sends the variant id back;
+//   * a single declared level (`-medium`) — same fold, one selectable level;
+//   * a no-thinking route (`no-think/…`) — no levels at all, pinned to `none`;
+//   * and an id that encodes no level, whose declared `effort_tiers` are used
+//     as-is (fabricated or not, the id offers no better evidence).
+{
+  const connection = {
+    baseURL: 'http://gw.local:3000/v1',
+    apiKeyRef: 'omniroute',
+    models: [],
+    modelExcludePatterns: [],
+    defaultContextWindow: 128_000,
+    streamIdleTimeoutMs: 300_000,
+    retryPolicy: resolveRetryPolicy(undefined, 'smoke'),
+    web: plugin.resolveWebOptions(undefined, 'http://gw.local:3000/v1'),
+  }
+  const adapter = new plugin.OmniRouteAdapter({
+    options: () => connection,
+    resolveApiKey: async () => 'smoke-key',
+  })
+
+  const originalFetch = globalThis.fetch
+  const variantTiers = ['none', 'low', 'medium', 'high', 'xhigh', 'max']
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    object: 'list',
+    data: [
+      {
+        id: 'agy/gemini-3.8-flash-high',
+        context_length: 1_048_576,
+        max_output_tokens: 65_536,
+        input_modalities: ['text', 'image'],
+        capabilities: { tool_calling: true, vision: true, effort_tiers: variantTiers },
+        name: 'Gemini 3.8 Flash (High)',
+      },
+      { id: 'agy/gemini-3.8-flash-low', capabilities: { tool_calling: true, effort_tiers: variantTiers } },
+      { id: 'agy/gpt-oss-120b-medium', max_output_tokens: 32_768, capabilities: { tool_calling: true, effort_tiers: variantTiers } },
+      { id: 'no-think/agy/claude-sonnet-4-6', capabilities: { tool_calling: true, effort_tiers: variantTiers } },
+      {
+        id: 'command-code/deepseek-v4.1-flash',
+        context_length: 1_000_000,
+        max_output_tokens: 943_718,
+        capabilities: { tool_calling: true, reasoning: true, effort_tiers: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      },
+      { id: 'sfc/Qwen3-Reranker-8B', type: 'rerank', supported_endpoints: ['rerank'], capabilities: { tool_calling: false } },
+    ],
+  }), { status: 200, headers: { 'content-type': 'application/json' } })
+
+  let rows
+  try {
+    rows = (await adapter.fetchCatalog({}, new AbortController().signal)).models
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.deepEqual(rows.map(row => row.id), [
+    'agy/gemini-3.8-flash',
+    'agy/gpt-oss-120b',
+    'command-code/deepseek-v4.1-flash',
+    'no-think/agy/claude-sonnet-4-6',
+  ])
+  const gemini = rows[0]
+  // Every advertised level of one native model folds into one row, ranked
+  // weakest-first, and the collapsed row is named after the native id rather
+  // than after the level that happened to be listed.
+  assert.deepEqual(gemini.reasoningEfforts, ['low', 'high'])
+  assert.equal(gemini.defaultReasoningEffort, 'high')
+  assert.deepEqual(gemini.effortModels, {
+    high: 'agy/gemini-3.8-flash-high',
+    low: 'agy/gemini-3.8-flash-low',
+  })
+  assert.equal(gemini.contextWindow, 1_048_576)
+  assert.equal(gemini.vision, true)
+  assert.equal(gemini.toolCalling, true)
+  assert.equal(gemini.name, 'Gemini 3.8 Flash[agy]')
+  // One advertised level means the gateway narrowed the route to it.
+  assert.deepEqual(rows[1].reasoningEfforts, ['medium'])
+  assert.equal(rows[1].defaultReasoningEffort, 'medium')
+  assert.equal(rows[1].name, 'GPT Oss 120B[agy]')
+  // A no-thinking route offers `none` alone, whatever tiers it also advertises.
+  assert.deepEqual(rows[3].reasoningEfforts, ['none'])
+  assert.equal(rows[3].defaultReasoningEffort, 'none')
+  assert.equal(rows[3].effortModels, undefined)
+  // An id that encodes no level keeps the declared tiers verbatim.
+  assert.deepEqual(rows[2].reasoningEfforts, ['low', 'medium', 'high', 'xhigh', 'max'])
+  assert.equal(rows[2].defaultReasoningEffort, 'max')
+
+  // The adapter also serves the reduced discovery shape, folded the same way.
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    object: 'list',
+    data: [
+      { id: 'agy/gemini-3.8-flash-high', capabilities: { effort_tiers: variantTiers } },
+      { id: 'agy/gemini-3.8-flash-low', capabilities: { effort_tiers: variantTiers } },
+    ],
+  }), { status: 200, headers: { 'content-type': 'application/json' } })
+  let discovered
+  try {
+    discovered = await adapter.discoverModels({ provider: 'omniroute' })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.deepEqual(discovered.map(model => model.id), ['agy/gemini-3.8-flash'])
+
+  // The wire: a selected level that lives in the id replaces the model id and
+  // sends no `reasoning_effort`; a level that does not sends it as-is.
+  const adopted = new plugin.OmniRouteAdapter({
+    options: () => ({ ...connection, models: rows }),
+    resolveApiKey: async () => 'smoke-key',
+  })
+  const sent = []
+  globalThis.fetch = async (_url, init) => {
+    sent.push(JSON.parse(init.body))
+    return new Response('data: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }
+  try {
+    for await (const _chunk of adopted.stream({ model: 'agy/gemini-3.8-flash', reasoningEffort: 'high', messages: [] })) { /* drain */ }
+    for await (const _chunk of adopted.stream({ model: 'command-code/deepseek-v4.1-flash', reasoningEffort: 'high', messages: [] })) { /* drain */ }
+    for await (const _chunk of adopted.stream({ model: 'no-think/agy/claude-sonnet-4-6', messages: [] })) { /* drain */ }
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.deepEqual(sent[0], { model: 'agy/gemini-3.8-flash-high', messages: [], stream: true, stream_options: { include_usage: true } })
+  assert.equal(sent[1].model, 'command-code/deepseek-v4.1-flash')
+  assert.equal(sent[1].reasoning_effort, 'high')
+  assert.equal(sent[2].model, 'no-think/agy/claude-sonnet-4-6')
+}
+
+// ── Block J: the web seam providers map the gateway's search and fetch ──
+{
+  const webOptions = plugin.resolveWebOptions({ snippetMaxChars: 20, fetchMaxChars: 10 }, 'http://gw.local:3000/v1')
+  const hooks = { options: () => webOptions, resolveApiKey: async () => 'smoke-key' }
+  const search = new plugin.OmniRouteSearchProvider(hooks)
+  const fetcher = new plugin.OmniRouteFetchProvider(hooks)
+  assert.equal(search.id, 'omniroute')
+  assert.equal(search.available(), true)
+  assert.equal(plugin.WEB_PROVIDER_ID, fetcher.id)
+
+  const originalFetch = globalThis.fetch
+  const requests = []
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), body: JSON.parse(init.body) })
+    if (String(url).endsWith('/search')) {
+      return new Response(JSON.stringify({
+        provider: 'exa-search',
+        results: [
+          { title: 'DeepSeek Harness', url: 'https://example.com/a', snippet: 'x'.repeat(50), published_at: '2026-01-01' },
+          { url: 'https://example.com/a', snippet: 'duplicate' },
+          { snippet: 'no url at all' },
+        ],
+        answer: { text: 'a generated answer' },
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    return new Response(JSON.stringify({
+      provider: 'firecrawl',
+      url: 'https://example.com/redirected',
+      content: 'y'.repeat(30),
+      metadata: { statusCode: 404 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  let searchResult, fetchResult
+  try {
+    searchResult = await search.search({ query: 'DeepSeek Harness' })
+    fetchResult = await fetcher.fetch({ url: 'https://example.com' })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.equal(requests[0].url, 'http://gw.local:3000/v1/search')
+  assert.deepEqual(requests[0].body, { query: 'DeepSeek Harness', max_results: 8 })
+  // Rows without a URL drop, duplicates collapse by URL, the snippet is clipped
+  // to the configured budget, and the provider's answer becomes the content.
+  assert.equal(searchResult.sources.length, 1)
+  assert.equal(searchResult.sources[0].url, 'https://example.com/a')
+  assert.equal(searchResult.sources[0].title, 'DeepSeek Harness')
+  assert.equal(searchResult.sources[0].snippet, `${'x'.repeat(20)}…`)
+  assert.equal(searchResult.sources[0].publishedAt, '2026-01-01')
+  assert.equal(searchResult.content, 'a generated answer')
+
+  assert.equal(requests[1].url, 'http://gw.local:3000/v1/web/fetch')
+  assert.deepEqual(requests[1].body, { url: 'https://example.com', format: 'markdown', include_metadata: true })
+  // The gateway answers extracted markdown, so the body is text; the page
+  // status comes from the provider metadata when it reports one, and an
+  // over-budget page is cut with `truncated` set.
+  assert.equal(fetchResult.url, 'https://example.com/redirected')
+  assert.equal(fetchResult.statusCode, 404)
+  assert.deepEqual(fetchResult.body, { kind: 'text', content: 'y'.repeat(10) })
+  assert.equal(fetchResult.truncated, true)
+
+  // A disabled web block leaves the seam alone rather than registering a
+  // provider that can never answer.
+  assert.equal(plugin.resolveWebOptions({ enabled: false }, 'http://gw.local:3000/v1').enabled, false)
+
+  // A gateway failure is a WebError-shaped throw naming the endpoint, never a
+  // silent empty result.
+  globalThis.fetch = async () => new Response('{"error":{"message":"no provider"}}', { status: 502 })
+  let failure
+  try {
+    await search.search({ query: 'x' })
+  } catch (error) {
+    failure = error
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(failure?.name, 'WebError')
+  assert.equal(failure?.code, 'WEB_PROVIDER_ERROR')
+  assert.match(failure.message, /OmniRoute search failed \(HTTP 502\)/)
+  assert.match(failure.message, /http:\/\/gw.local:3000\/v1\/search/)
+}
+
+// ── Block K: the plugin registers both web providers from its own config ──
+// The web seam is optional: when the composition provides it, the plugin
+// registers the gateway-backed providers under the id the bundle patch pins;
+// when it does not, the chat route is untouched. Both read the connection
+// snapshot the chat route resolved, so they cannot drift to another endpoint.
+{
+  const ctx = new Context()
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(FakeCredentials, { omniroute: 'key-k' })
+  await ctx.plugin(FakeWeb)
+  await mountPlugin(ctx, { baseURL: 'http://gw.local:3000/v1' })
+  const web = ctx.get('web')
+  assert.equal(web.searchProviders.length, 1)
+  assert.equal(web.fetchProviders.length, 1)
+  assert.equal(web.searchProviders[0].id, 'omniroute')
+  assert.equal(web.fetchProviders[0].id, 'omniroute')
+  // `available()` is the seam's cheap pre-flight, and it runs the plugin's own
+  // resolution: the endpoint came from the connection snapshot, not a second
+  // config read.
+  assert.equal(web.searchProviders[0].available(), true)
+
+  // A disabled web block registers nothing at all.
+  const off = new Context()
+  await off.plugin(LlmRuntime)
+  await off.plugin(FakeCredentials, { omniroute: 'key-k' })
+  await off.plugin(FakeWeb)
+  await mountPlugin(off, { baseURL: 'http://gw.local:3000/v1', web: { enabled: false } })
+  assert.equal(off.get('web').searchProviders.length, 0)
+  assert.equal(off.get('web').fetchProviders.length, 0)
+
+  // A composition with no web seam still mounts the chat route.
+  const none = new Context()
+  await none.plugin(LlmRuntime)
+  await mountPlugin(none)
+  assert.deepEqual(none.llm.listProviders().map(provider => provider.id), ['omniroute'])
+}
+
 // ── Block H (optional): real-catalog check against the local dev cache ──
 // .cache/models-dev.api.json (npm run cache:models-dev, gitignored) carries
 // the catalog's real field shapes; when present, matchModelsDev is exercised
@@ -581,4 +881,4 @@ function stubModelsListing() {
   }
 }
 
-console.log('smoke: llm-newapi registrations, chat-only discovery, credentials-service key, settings schema validation, volatile-edit propagation, ordering, display names, models.dev matching, deferred RPC channel, dead-proxy diagnostics, and empty-string tool-call delta hardening OK')
+console.log('smoke: llm-omniroute registrations, capability mapping, thinking-level rules (no-think / level-carrying ids / declared tiers), web-provider registration, credentials-service key, settings schema validation, volatile-edit propagation, ordering, display names, models.dev matching, deferred RPC channel, dead-proxy diagnostics, web search+fetch mapping, and empty-string tool-call delta hardening OK')

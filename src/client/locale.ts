@@ -1,52 +1,62 @@
 /**
- * Copy dictionaries for the NewAPI settings section. Product copy is Chinese
- * first (the dsh web convention); English mirrors it.
+ * Copy dictionaries for the Custom Provider settings section. Product copy is
+ * Chinese first (the dsh web convention); English mirrors it.
  */
 
 // Type-only: pulls the shell's LocaleNamespaceMap so the merge below (and
-// every PropsLocale seat typing `t` over `settings.newapi`) resolves.
+// every PropsLocale seat typing `t` over `settings.omniroute`) resolves.
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** The NewAPI settings section copy. */
-    'settings.newapi': NewApiKey
+    /** The Custom Provider settings section copy. */
+    'settings.omniroute': OmniRouteKey
   }
 }
 
 export const zh = {
-  nav: 'NewAPI',
-  intro: '配置 NewAPI 网关：API 密钥、网关地址与模型列表。模型发现只列出支持 chat 接口的模型。',
+  nav: 'Custom Provider',
+  intro: '配置 OmniRoute 网关：API 密钥、网关地址、模型列表，以及网关自己的 web_search / web_fetch。模型参数与能力由网关 /v1/models 暴露的字段决定。',
   keyInput: 'API 密钥',
   keyPlaceholder: '粘贴令牌；留空保持已存密钥不变',
   keyStored: '已配置（不回显）',
   keyMissing: '未配置',
   keyEnvLocked: '由启动环境提供（只读）',
   baseUrl: '网关地址（含 /v1 前缀）',
-  baseUrlPlaceholder: 'http://gw.local:3000/v1',
+  baseUrlPlaceholder: 'http://127.0.0.1:20128/v1',
   models: '模型',
   modelsEmpty: '暂无模型：点「添加模型」手动新增，或「获取模型」从网关拉取。',
   clearModels: '清空',
   addModel: '添加模型',
   removeModel: '删除该模型',
-  modelAdvanced: '高级设置（上下文 / 输出上限）',
+  modelAdvanced: '高级设置（上下文 / 输出上限 / 思考等级）',
   modelId: '模型 ID',
   modelName: '显示名称',
   contextWindow: '上下文窗口',
   maxTokens: '输出上限',
   modelReasoning: '思考等级',
-  defaultEffort: '预设思考等级（切换模式时自动选择）',
+  defaultEffort: '默认思考等级',
+  defaultEffortHint: '切换思考模式时自动选中该等级。',
+  effortNone: 'None（不思考）',
+  effortIdBound: '等级在模型 id 上',
+  effortIdBoundHint: '已按表并发：该网关把等级编进模型 id，发送时按所选等级换成对应 id。',
+  effortMapRow: '{effort} → {model}',
+  effortFromTiers: '等级来自网关声明的 effort_tiers（该模型 id 未限定等级）。',
+  capabilityVision: '图片输入',
+  capabilityToolCalling: '工具调用',
+  capabilityNone: '网关未声明能力',
   modelIdRequired: '模型 ID 不能为空',
   modelIdDuplicate: '模型 ID 重复',
   capacityInvalid: '容量需为正数，可用 K/M 缩写（如 128K、1M）',
   fetchModels: '获取模型',
   fetching: '正在询问网关…',
-  fetchEmpty: '网关没有列出可用的 chat 模型（embedding / rerank / ranker 已过滤）。',
+  fetchEmpty: '网关没有列出可用的 chat 模型（embedding / rerank / ranker 已按能力与命名过滤）。',
   fetchTitle: '选择要添加的模型',
   fetchSelectAll: '全选',
   fetchAdopt: '添加所选',
   fetchCancel: '取消',
-  updateParams: '从models.dev获取模型信息',
+  fetchFailed: '网关目录获取失败',
+  updateParams: '从 models.dev 获取模型信息',
   paramsFetching: '正在查询 models.dev…',
   paramsTitle: '模型参数（来自 models.dev）',
   paramsSummary: '匹配 {matched} 个 · 未匹配 {unmatched} 个',
@@ -57,6 +67,7 @@ export const zh = {
   paramsFillBlank: '仅填空白字段',
   paramsApplied: '已更新模型信息',
   paramsNoModels: '没有可查询的模型：先添加模型或从网关获取。',
+  paramsIdBoundSkipped: '思考等级由模型 id 决定，未覆盖',
   proxyToggle: '代理',
   proxyUrl: '代理地址',
   proxyHint: '仅用于下载 models.dev 模型参数；网关请求仍走宿主网络，宿主自身的代理设置依然生效，关闭此项不等于直连。',
@@ -64,46 +75,56 @@ export const zh = {
   applying: '正在保存…',
   saved: '已保存。',
   loadFailed: '加载失败',
-  nsNotRegistered: 'llm-newapi: 设置命名空间未注册（插件行是否已加载？）',
+  nsNotRegistered: 'llm-omniroute: 设置命名空间未注册（插件行是否已加载？）',
   retry: '重试',
   readOnly: '当前设置源只读，无法保存。',
-  modelHint: '默认只列出 /chat/completions 接口支持的模型；不支持该接口的模型请手动添加。该配置可在 settings.yaml 的 llm-newapi: 段用 modelExcludePatterns 调整。',
+  modelHint: '模型列表与能力来自网关 /v1/models：上下文、输出上限、图片与工具能力由网关声明；思考等级优先看模型 id（no-think 前缀 = 无等级，-low/-high 等后缀 = 等级写在 id 上，此时同一原生模型会折叠为一行），id 未限定等级时才采用网关声明的 effort_tiers。web_search / web_fetch 走本网关的搜索与抓取栈。',
 } as const
 
-export type NewApiKey = keyof typeof zh
+export type OmniRouteKey = keyof typeof zh
 
-export const en: Record<NewApiKey, string> = {
-  nav: 'NewAPI',
-  intro: 'Configure the NewAPI gateway: API key, gateway base URL, and model list. Discovery lists chat-capable models only.',
+export const en: Record<OmniRouteKey, string> = {
+  nav: 'Custom Provider',
+  intro: 'Configure the OmniRoute gateway: API key, gateway base URL, model list, and the gateway\'s own web_search / web_fetch. Model parameters and capabilities come from the fields its /v1/models listing discloses.',
   keyInput: 'API key',
   keyPlaceholder: 'Paste the token; leave blank to keep the stored key',
   keyStored: 'Configured (never echoed)',
   keyMissing: 'Not configured',
   keyEnvLocked: 'Provided by the launch environment (read-only)',
   baseUrl: 'Gateway base URL (including /v1)',
-  baseUrlPlaceholder: 'http://gw.local:3000/v1',
+  baseUrlPlaceholder: 'http://127.0.0.1:20128/v1',
   models: 'Models',
   modelsEmpty: 'No models yet: add one by hand, or fetch the list from the gateway.',
   clearModels: 'Clear',
   addModel: 'Add model',
   removeModel: 'Remove this model',
-  modelAdvanced: 'Advanced (context window / max output)',
+  modelAdvanced: 'Advanced (context window / max output / thinking levels)',
   modelId: 'Model ID',
   modelName: 'Display name',
   contextWindow: 'Context window',
   maxTokens: 'Max output tokens',
-  modelReasoning: 'Reasoning efforts',
-  defaultEffort: 'Default reasoning effort (auto-selected on mode switch)',
+  modelReasoning: 'Thinking levels',
+  defaultEffort: 'Default thinking level',
+  defaultEffortHint: 'Selected automatically when switching into thinking mode.',
+  effortNone: 'None (no thinking)',
+  effortIdBound: 'Level lives in the model id',
+  effortIdBoundHint: 'Adopted as listed: this gateway encodes the level in the model id, so a request sends the id matching the selected level.',
+  effortMapRow: '{effort} → {model}',
+  effortFromTiers: 'Levels come from the gateway-declared effort_tiers (this model id encodes no level of its own).',
+  capabilityVision: 'Image input',
+  capabilityToolCalling: 'Tool calling',
+  capabilityNone: 'No capability declared',
   modelIdRequired: 'Model id is required',
   modelIdDuplicate: 'Duplicate model id',
   capacityInvalid: 'Capacity must be a positive number; K/M suffix allowed (e.g. 128K, 1M)',
   fetchModels: 'Fetch models',
   fetching: 'Asking the gateway…',
-  fetchEmpty: 'The gateway listed no chat-capable models (embedding / rerank / ranker filtered out).',
+  fetchEmpty: 'The gateway listed no chat-capable models (embedding / rerank / ranker filtered by capability and by name).',
   fetchTitle: 'Choose models to add',
   fetchSelectAll: 'Select all',
   fetchAdopt: 'Add selected',
   fetchCancel: 'Cancel',
+  fetchFailed: 'Gateway catalog fetch failed',
   updateParams: 'Fetch model info from models.dev',
   paramsFetching: 'Querying models.dev…',
   paramsTitle: 'Model parameters (from models.dev)',
@@ -115,6 +136,7 @@ export const en: Record<NewApiKey, string> = {
   paramsFillBlank: 'Fill blank fields only',
   paramsApplied: 'Model info updated',
   paramsNoModels: 'No models to look up: add one or fetch from the gateway first.',
+  paramsIdBoundSkipped: 'thinking levels come from the model id and were kept',
   proxyToggle: 'Proxy',
   proxyUrl: 'Proxy URL',
   proxyHint: 'Used only for the models.dev parameter download. Gateway requests still use the host network, and the host may apply its own proxy settings, so disabling this does not force a direct connection.',
@@ -122,8 +144,8 @@ export const en: Record<NewApiKey, string> = {
   applying: 'Saving…',
   saved: 'Saved.',
   loadFailed: 'Load failed',
-  nsNotRegistered: 'llm-newapi: the settings namespace is not registered (is the plugin row loaded?)',
+  nsNotRegistered: 'llm-omniroute: the settings namespace is not registered (is the plugin row loaded?)',
   retry: 'Retry',
   readOnly: 'The active settings source is read-only; nothing can be saved.',
-  modelHint: 'By default only models supported by the /chat/completions endpoint are listed; models without that support must be added manually. Tune modelExcludePatterns in the llm-newapi: settings section.',
+  modelHint: 'The model list and its capabilities come from the gateway /v1/models listing: context, output cap, image and tool support are what the gateway declares. Thinking levels prefer the model id (a no-think prefix means no level; a -low/-high suffix means the level is in the id, and every level of one native model folds into a single row); the declared effort_tiers are used only when the id encodes no level. web_search / web_fetch use this gateway\'s search and fetch stack.',
 }

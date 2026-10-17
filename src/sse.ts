@@ -8,7 +8,7 @@
  * spec-strict: an event dispatches only on its blank-line terminator, so an
  * unterminated tail at EOF is truncation, not a flushable payload.
  *
- * @module dsh-llm-newapi/sse
+ * @module dsh-omniroute/sse
  */
 
 import { EventSourceParserStream } from 'eventsource-parser/stream'

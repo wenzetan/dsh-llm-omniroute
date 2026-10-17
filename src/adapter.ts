@@ -1,13 +1,15 @@
 /**
- * `NewApiAdapter`: fetch + SSE against a NewAPI (OpenAI-compatible) gateway,
- * emitting harness StreamChunks. The adapter is transport-only: connection
- * facts arrive through a thunk resolved once per operation and the bearer
- * token through a per-request resolver, so the registering plugin owns
- * validation, layering, and credential policy. No reasoning-control fields
- * are emitted and no harness telemetry headers are sent: the mandatory
+ * `OmniRouteAdapter`: fetch + SSE against an OmniRoute (OpenAI-compatible
+ * aggregation gateway), emitting harness StreamChunks. The adapter is
+ * transport-only: connection facts arrive through a thunk resolved once per
+ * operation and the bearer token through a per-request resolver, so the
+ * registering plugin owns validation, layering, and credential policy. The
+ * selected reasoning effort travels either as `reasoning_effort` or folded
+ * into the wire model id, decided by {@link resolveWireModel} over the
+ * persisted catalog. No harness telemetry headers are sent: the mandatory
  * attribution `User-Agent` is the only product identity on the wire.
  *
- * @module dsh-llm-newapi/adapter
+ * @module dsh-omniroute/adapter
  */
 
 import {
@@ -35,6 +37,15 @@ import type {
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { fetch as undiciFetch, ProxyAgent } from 'undici'
+import {
+  DEFAULT_MODEL_EXCLUDE_PATTERNS,
+  displayModelName,
+  highestEffort,
+  parseOmniRouteCatalog,
+  resolveWireModel,
+} from './catalog.ts'
+import type { OmniRouteCatalogModel, ParseCatalogOptions } from './catalog.ts'
+import type { OmniRouteWebOptions } from './web.ts'
 import { serializeRequest } from './serialize.ts'
 import { parseSse } from './sse.ts'
 import { translate } from './translate.ts'
@@ -50,41 +61,14 @@ import type {
 } from './types.ts'
 
 /** Prefix for adapter-raised diagnostics. */
-export const PKG = 'llm-newapi'
+export const PKG = 'llm-omniroute'
 
-/**
- * Default case-insensitive id substrings excluding non-chat models from
- * discovery. NewAPI gateways aggregate every enabled channel into
- * `GET /models` — embedding (`text-embedding-*`) and rerank (`*rerank*`,
- * `*reranker*`) families among them — and the OpenAI listing shape carries
- * no capability metadata, so chat-compatibility filtering is naming-convention
- * based. Name heuristics cannot catch every multi-capability id (`bge-m3`
- * embeds and reranks under a bare name); `modelExcludePatterns` in config
- * replaces this list for deployments that know better, and an empty array
- * disables filtering entirely.
- */
-export const DEFAULT_MODEL_EXCLUDE_PATTERNS: readonly string[] = ['embed', 'rerank', 'ranker']
+// The advisory catalog row and its parsing rules live in ./catalog.ts; they are
+// re-exported here because the adapter is the surface every consumer already
+// imports (and the built entry re-exports this module).
+export { DEFAULT_MODEL_EXCLUDE_PATTERNS, displayModelName, modelNameFromId, parseOmniRouteCatalog } from './catalog.ts'
+export type { OmniRouteCatalogModel, ParseCatalogOptions } from './catalog.ts'
 
-/** One optional model entry advertised by this adapter. */
-export interface NewApiCatalogModel {
-  /** Wire model id accepted by the configured gateway. */
-  id: string
-  /** Selector label; defaults to {@link id}. */
-  name?: string
-  /** Optional selector detail for deployments with similar model variants. */
-  description?: string
-  /** Known combined request/response context capacity; omitted when deployment metadata is unavailable. */
-  contextWindow?: number
-  /** Per-request output cap for this model; omission falls back to the profile's {@link NewApiConnectionOptions.maxTokens}. */
-  maxTokens?: number
-  /** Supported reasoning-effort ids; presence offers the effort selector. */
-  reasoningEfforts?: string[]
-  /**
-   * Preset default effort for this model; must be one of
-   * {@link reasoningEfforts}. Absence defaults to the highest declared rung.
-   */
-  defaultReasoningEffort?: string
-}
 
 /**
  * Validated connection facts for one operation. The plugin's
@@ -92,19 +76,19 @@ export interface NewApiCatalogModel {
  * shape; the adapter trusts it and re-reads it per operation, which is what
  * makes a configuration change reach the next request without re-registration.
  */
-export interface NewApiConnectionOptions {
+export interface OmniRouteConnectionOptions {
   /** Gateway base including the `/v1` prefix; `/chat/completions` and `/models` are appended. */
   baseURL: string
   /**
    * Credential reference of this same resolution, resolved per request.
    * Travelling with the endpoint is the point: a request can never pair one
    * generation's URL with another generation's secret. The reference is the
-   * fixed id `newapi` — the web settings page owns the value, and a literal
+   * fixed id `omniroute` — the web settings page owns the value, and a literal
    * key is not a configuration value.
    */
   apiKeyRef: CredentialRef
   /** Advisory models exposed to discovery consumers; requests remain unrestricted. */
-  models: readonly NewApiCatalogModel[]
+  models: readonly OmniRouteCatalogModel[]
   /**
    * Case-insensitive id substrings excluding discovered models that cannot
    * serve chat completions; the hand-curated {@link models} catalog is never
@@ -127,19 +111,25 @@ export interface NewApiConnectionOptions {
   providerHints: ProviderHints
   /** Provider-owned model-request retry policy, already resolved. */
   retryPolicy: ResolvedRetryPolicy
+  /**
+   * The web seam's facts for the same generation: gateway endpoint plus the
+   * search/fetch knobs. Resolved with the connection so the two can never drift
+   * apart, and so both inherit the same last-good fallback.
+   */
+  web: OmniRouteWebOptions
 }
 
-/** Constructor options for {@link NewApiAdapter}: the operation-local resolution hooks the plugin owns. */
-export interface NewApiAdapterOptions {
+/** Constructor options for {@link OmniRouteAdapter}: the operation-local resolution hooks the plugin owns. */
+export interface OmniRouteAdapterOptions {
   /** Current validated connection facts; called once per operation. */
-  options: () => NewApiConnectionOptions
+  options: () => OmniRouteConnectionOptions
   /**
    * Resolve the bearer token for the connection facts of one request. The
    * snapshot is passed in — never re-read — so the key can only ever come
    * from the same resolution as the endpoint it is sent to. Throws `LlmError`
    * `MISSING_CREDENTIAL` when the credentials store holds no value.
    */
-  resolveApiKey: (connection: NewApiConnectionOptions) => Promise<string>
+  resolveApiKey: (connection: OmniRouteConnectionOptions) => Promise<string>
   /**
    * Name the provider route that officially serves a model id, so a
    * multi-provider catalog match can put the vendor's own facts first.
@@ -292,7 +282,7 @@ export function normalizeBaseUrl(raw: string): string {
   return base
 }
 
-function modelInfo(provider: string, model: NewApiCatalogModel): LlmModelInfo {
+function modelInfo(provider: string, model: OmniRouteCatalogModel): LlmModelInfo {
   return {
     provider,
     id: model.id,
@@ -300,75 +290,6 @@ function modelInfo(provider: string, model: NewApiCatalogModel): LlmModelInfo {
     ...model.description === undefined ? {} : { description: model.description },
     inputModalities: ['text'],
   }
-}
-
-/**
- * Effort intensity ordering, strongest first; unknown ids rank lowest.
- * @param effort - an effort id from the catalog.
- * @returns the comparable rung.
- */
-const EFFORT_RUNG: Readonly<Record<string, number>> = {
-  max: 7, xhigh: 6, high: 5, medium: 4, low: 3, minimal: 2, none: 1, default: 0,
-}
-
-/** The highest-ranked effort id in a catalog-declared list. */
-function highestEffort(efforts: readonly string[]): string {
-  return [...efforts].sort((a, b) => (EFFORT_RUNG[b] ?? -1) - (EFFORT_RUNG[a] ?? -1))[0] as string
-}
-
-/** Brand words that keep their own casing instead of first-letter capital. */
-const BRAND_SPELLING: Readonly<Record<string, string>> = {
-  glm: 'GLM',
-  gpt: 'GPT',
-  deepseek: 'DeepSeek',
-}
-
-/**
- * Derive a human display name from a gateway model id when the listing
- * supplied none: take the last `/` segment (routed ids carry their vendor
- * as a path prefix), turn `-` into spaces, and capitalize each word's first
- * letter — except brand words, which keep their own spelling (`glm` → GLM,
- * `gpt` → GPT, `deepseek` → DeepSeek). A lone trailing letter reads as a
- * size marker and goes uppercase too. A routed id appends its verbatim
- * prefix in brackets: `deepseek-ai/deepseek-v4-flash` →
- * `DeepSeek V4 Flash[deepseek-ai]`.
- * @param id - the full gateway model id.
- * @returns the generated display name.
- */
-export function modelNameFromId(id: string): string {
-  const slash = id.lastIndexOf('/')
-  const prefix = slash === -1 ? undefined : id.slice(0, slash)
-  const words = id.slice(slash + 1).split('-').filter(word => word.length > 0)
-  const spelled = words.map((word, at) => {
-    // A lone-letter segment anywhere ("...-b") is a marker, not a word.
-    if (word.length === 1) return word.toUpperCase()
-    const brand = BRAND_SPELLING[word]
-    if (brand !== undefined) return brand
-    let result = word.charAt(0).toUpperCase() + word.slice(1)
-    if (at === words.length - 1) {
-      // A size letter (b/k/m) trailing digits/dots in the LAST word ("32b",
-      // "4.5b") is a suffix: capitalize it even though the word starts with
-      // a digit and the first-letter rule above never reaches it. Version
-      // letters stay as-is — `gpt-4o` keeps its lowercase o.
-      result = result.replace(/([0-9.])([bkm])$/, (_match: string, head: string, tail: string) =>
-        head + tail.toUpperCase())
-    }
-    return result
-  }).join(' ')
-  return prefix === undefined ? spelled : `${spelled}[${prefix}]`
-}
-
-/**
- * Display name for one gateway model id: the name the gateway listing
- * supplied when it has one, else {@link modelNameFromId} over the id. The
- * full id always stays the wire value the gateway answers to.
- * @param id - the full gateway model id.
- * @param listed - the name the gateway listing itself supplied, if any.
- * @returns the listed name when present, else the generated name.
- */
-export function displayModelName(id: string, listed?: string): string {
-  if (listed !== undefined && listed.length > 0) return listed
-  return modelNameFromId(id)
 }
 
 function providerRetryAfterMs(value: string | null): number | undefined {
@@ -406,19 +327,19 @@ export function httpErrorCode(status: number, error?: WireError['error']): strin
 }
 
 /**
- * The NewAPI gateway adapter. One instance serves every model name it was
+ * The OmniRoute gateway adapter. One instance serves every model name it was
  * registered under (the harness model name IS the wire model name).
  *
  * One stable signal reaches both initial fetch and body reads. Caller aborts
  * map to `ABORTED`; the configured per-read idle watchdog maps to `TIMEOUT`.
  */
-export class NewApiAdapter extends LlmAdapter {
-  constructor(private readonly config: NewApiAdapterOptions) {
+export class OmniRouteAdapter extends LlmAdapter {
+  constructor(private readonly config: OmniRouteAdapterOptions) {
     super()
   }
 
   override providerInfo(provider: string): LlmProviderInfo {
-    return { id: provider, name: 'NewAPI' }
+    return { id: provider, name: 'Custom Provider' }
   }
 
   override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
@@ -441,19 +362,23 @@ export class NewApiAdapter extends LlmAdapter {
       // The chat-completions wire route is text-only regardless of catalog
       // membership, so the uncatalogued fallback declares the same negative
       // capability — "unknown" here would let the host accept and persist
-      // images the serializer must then reject.
+      // images the serializer must then reject. The gateway's own vision flag
+      // is kept on the row (displayed by the settings page) but is not
+      // promoted to a declaration until this adapter can serialize images.
       ...configured === undefined
         ? { provider, id: model, name: model, inputModalities: ['text' as const] }
         : modelInfo(provider, configured),
       context: { contextWindow: configured?.contextWindow ?? connection.defaultContextWindow },
-      // Reasoning efforts arrive as catalog facts (from models.dev via the
-      // update action): a row that carries them offers the effort selector,
-      // and an explicit effort rides the wire as `reasoning_effort`. The
-      // default is the row's configured preset, falling back to the highest
-      // rung the catalog declared (max > xhigh > high > medium > low > …), so
-      // switching into reasoning mode selects a level automatically. Rows
-      // without the fact keep declaring nothing — an explicit effort then
-      // rejects before provider I/O, same as before.
+      // Reasoning efforts arrive as catalog facts: the gateway's own listing
+      // (parsed by ./catalog.ts, which decides whether an id encodes its own
+      // level) or a models.dev fallback the user adopted. A row that carries
+      // them offers the effort selector, and the selected effort either rides
+      // the wire as `reasoning_effort` or selects the concrete model id, per
+      // the row's effortModels map. The default is the row's configured
+      // preset, falling back to the strongest declared rung, so switching into
+      // reasoning mode selects a level automatically. Rows without the fact
+      // keep declaring nothing — an explicit effort then rejects before
+      // provider I/O, same as before.
       ...configured?.reasoningEfforts !== undefined && configured.reasoningEfforts.length > 0
         ? {
           reasoning: {
@@ -464,7 +389,7 @@ export class NewApiAdapter extends LlmAdapter {
             ...configured.defaultReasoningEffort !== undefined
               && configured.reasoningEfforts.includes(configured.defaultReasoningEffort)
               ? { defaultEffort: ReasoningEffortId(configured.defaultReasoningEffort) }
-              : { defaultEffort: ReasoningEffortId(highestEffort(configured.reasoningEfforts)) },
+              : { defaultEffort: ReasoningEffortId(highestEffort(configured.reasoningEfforts) ?? '') },
           },
         }
         : {},
@@ -473,19 +398,18 @@ export class NewApiAdapter extends LlmAdapter {
   }
 
   /**
-   * Interrogate one gateway endpoint for the models it advertises, serving
-   * the settings-namespace discovery the plugin registered. A draft being
-   * edited supplies its own base and one-shot credential; otherwise both
-   * come from the current connection snapshot.
-   * @param request - the discovery draft (endpoint, protocol, credential).
-   * @param signal - caller cancellation, supplied separately by the runtime.
-   * @returns the advertised models, deduplicated by the runtime, enriched
-   *   with context/maxTokens facts from the configured catalog when ids match.
+   * Fetch and parse one gateway `/models` listing into catalog rows. The one
+   * place that knows the endpoint, the credential choice, and the error
+   * vocabulary; discovery, the settings-page catalog fetch, and any future
+   * consumer share it.
+   * @param request - the draft endpoint/credential, when a settings form is editing one.
+   * @param signal - caller cancellation.
+   * @returns the parsed rows, sorted by id.
    */
-  async discoverModels(
-    request: LlmModelDiscoveryRequest,
+  private async catalogRows(
+    request: { baseURL?: string; apiKey?: string },
     signal?: AbortSignal,
-  ): Promise<readonly LlmDiscoveredModel[]> {
+  ): Promise<OmniRouteCatalogModel[]> {
     const connection = this.config.options()
     const base = request.baseURL !== undefined && request.baseURL.length > 0
       ? normalizeBaseUrl(request.baseURL)
@@ -506,7 +430,7 @@ export class NewApiAdapter extends LlmAdapter {
       })
     } catch (error: unknown) {
       if (signal?.aborted) throw error
-      throw new LlmError(`NewAPI model discovery request to ${base} failed`, 'TRANSPORT', { cause: error })
+      throw new LlmError(`OmniRoute model discovery request to ${base} failed`, 'TRANSPORT', { cause: error })
     }
     if (!response.ok) {
       let providerError: WireError['error']
@@ -518,7 +442,7 @@ export class NewApiAdapter extends LlmAdapter {
       }
       const id = requestId(response.headers)
       throw new LlmError(
-        providerError?.message ?? `NewAPI model discovery error (HTTP ${response.status})`,
+        providerError?.message ?? `OmniRoute model discovery error (HTTP ${response.status})`,
         httpErrorCode(response.status, providerError),
         {
           status: response.status,
@@ -530,32 +454,60 @@ export class NewApiAdapter extends LlmAdapter {
     try {
       list = await response.json() as WireModelList
     } catch {
-      throw new LlmError(`NewAPI model discovery from ${base} returned a malformed body`, 'MALFORMED_RESPONSE')
+      throw new LlmError(`OmniRoute model discovery from ${base} returned a malformed body`, 'MALFORMED_RESPONSE')
     }
-    const catalog = new Map(connection.models.map(model => [model.id, model]))
-    const excludes = connection.modelExcludePatterns.map(pattern => pattern.toLowerCase())
-    const models: LlmDiscoveredModel[] = []
-    for (const entry of list.data ?? []) {
-      if (typeof entry?.id !== 'string' || entry.id.length === 0) continue
-      // A gateway listing cannot say what a model can serve; the id's naming
-      // convention is the only signal, so non-chat families (embedding,
-      // rerank) are dropped here rather than offered for adoption as chat
-      // models that would fail every request.
-      const id = entry.id.toLowerCase()
-      if (excludes.some(pattern => id.includes(pattern))) continue
-      const known = catalog.get(entry.id)
-      models.push({
-        id: entry.id,
-        name: displayModelName(entry.id, entry.name),
-        ...known?.contextWindow !== undefined ? { contextWindow: known.contextWindow } : {},
-        ...known?.maxTokens !== undefined ? { maxTokens: known.maxTokens } : {},
-      })
-    }
-    // Sorted by id: a gateway listing has no meaningful order of its own, and
-    // a stable alphabetical one keeps the picker scannable across fetches.
-    models.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-    return models
+    const options: ParseCatalogOptions = { excludePatterns: connection.modelExcludePatterns }
+    return parseOmniRouteCatalog(list.data ?? [], options)
   }
+
+  /**
+   * Interrogate one gateway endpoint for the models it advertises, serving
+   * the settings-namespace discovery the plugin registered. A draft being
+   * edited supplies its own base and one-shot credential; otherwise both
+   * come from the current connection snapshot.
+   *
+   * The rows are the collapsed ones (`./catalog.ts`): one entry per native
+   * model id, with the level-carrying variants folded away. Context, output
+   * cap and vision come from the listing's own capability facts, so an
+   * adoption no longer needs a second catalog to be useful.
+   * @param request - the discovery draft (endpoint, protocol, credential).
+   * @param signal - caller cancellation, supplied separately by the runtime.
+   * @returns the advertised models, deduplicated by the runtime.
+   */
+  async discoverModels(
+    request: LlmModelDiscoveryRequest,
+    signal?: AbortSignal,
+  ): Promise<readonly LlmDiscoveredModel[]> {
+    const rows = await this.catalogRows(request, signal)
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name ?? row.id,
+      ...row.contextWindow === undefined ? {} : { contextWindow: row.contextWindow },
+      ...row.maxTokens === undefined ? {} : { maxTokens: row.maxTokens },
+      // Text-only declaration on purpose: the row keeps the gateway's vision
+      // flag (`row.vision`) for display, but this wire route cannot carry
+      // images yet, and claiming otherwise would make the host accept them.
+      inputModalities: ['text' as const],
+    }))
+  }
+
+  /**
+   * Serve the settings page's rich catalog fetch over the plugin's own RPC
+   * channel: the same `/models` interrogation as {@link discoverModels}, but
+   * with the facts an adoption persists (thinking levels, the level → model-id
+   * map, vision and tool capability, capacities) instead of the reduced
+   * discovery shape the harness declares.
+   * @param request - the draft endpoint/credential from the settings form.
+   * @param signal - caller cancellation.
+   * @returns the rows the form adopts verbatim.
+   */
+  async fetchCatalog(
+    request: { baseURL?: string; apiKey?: string },
+    signal: AbortSignal,
+  ): Promise<{ models: OmniRouteCatalogModel[] }> {
+    return { models: await this.catalogRows(request, signal) }
+  }
+
 
   /**
    * Download the models.dev catalog (optionally through the configured
@@ -694,18 +646,18 @@ export class NewApiAdapter extends LlmAdapter {
     } catch (error: unknown) {
       if (timeoutOf(watchdog.signal, STREAM_IDLE_TIMEOUT_CODE) !== undefined) {
         throw new LlmError(
-          `NewAPI stream idle timeout after ${connection.streamIdleTimeoutMs}ms`,
+          `OmniRoute stream idle timeout after ${connection.streamIdleTimeoutMs}ms`,
           'TIMEOUT',
           { cause: error },
         )
       }
       if (options.signal?.aborted) {
-        throw new LlmError('NewAPI request aborted by caller', 'ABORTED', { cause: error })
+        throw new LlmError('OmniRoute request aborted by caller', 'ABORTED', { cause: error })
       }
       if (error instanceof LlmError) throw error
-      throw new LlmError(`NewAPI stream from ${connection.baseURL} failed`, 'TRANSPORT', { cause: error })
+      throw new LlmError(`OmniRoute stream from ${connection.baseURL} failed`, 'TRANSPORT', { cause: error })
     } finally {
-      consumer.abort('NewAPI stream consumer stopped')
+      consumer.abort('OmniRoute stream consumer stopped')
       if (!exhausted && iterator.return !== undefined) {
         try {
           await iterator.return()
@@ -719,11 +671,25 @@ export class NewApiAdapter extends LlmAdapter {
   private async * request(
     options: GenerateOptions,
     signal: AbortSignal,
-    connection: NewApiConnectionOptions,
+    connection: OmniRouteConnectionOptions,
     apiKey: string,
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
-    const body = serializeRequest(options)
+    const row = connection.models.find(entry => entry.id === options.model)
+    // The level either rides the model id (a gateway variant route) or the
+    // request's own `reasoning_effort`; ./catalog.ts owns which, because it is
+    // the module that folded the variants in the first place. The caller's
+    // effort is replaced outright — a level that moved into the id must not be
+    // sent twice.
+    const wire = resolveWireModel(row, options.model, options.reasoningEffort)
+    const { reasoningEffort: _selectedEffort, ...rest } = options
+    const body = serializeRequest({
+      ...rest,
+      model: wire.model,
+      ...wire.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: ReasoningEffortId(wire.reasoningEffort) },
+    })
     // Prepared outside the try so the TRANSPORT label below covers exactly the
     // transport boundary, never a serialization failure.
     const payload = JSON.stringify(body)
@@ -752,14 +718,14 @@ export class NewApiAdapter extends LlmAdapter {
       // lives on `cause`. Wrapping with the endpoint and chaining the cause
       // lets `errorChain` render the full diagnosis at every reporting boundary.
       throw new LlmError(
-        `NewAPI request to ${connection.baseURL} failed`,
+        `OmniRoute request to ${connection.baseURL} failed`,
         'TRANSPORT',
         { cause: error },
       )
     }
 
     if (!response.ok) {
-      let message = `NewAPI error (HTTP ${response.status})`
+      let message = `OmniRoute error (HTTP ${response.status})`
       let providerError: WireError['error']
       try {
         const parsed = await response.json() as WireError
@@ -778,7 +744,7 @@ export class NewApiAdapter extends LlmAdapter {
       })
     }
     if (!response.body) {
-      throw new LlmError('NewAPI returned no response body', 'EMPTY_RESPONSE')
+      throw new LlmError('OmniRoute returned no response body', 'EMPTY_RESPONSE')
     }
 
     yield* translate(parseSse(response.body, onComment))

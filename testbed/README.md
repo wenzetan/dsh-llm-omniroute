@@ -170,7 +170,7 @@ configuration, not that they never touched a single host byte.
 | A plugin tree fails to load with `can only be read by its owner` | Credential permissions inside the container: confirm `chmod 600` took effect (the entrypoint already does this); on Windows mounts the mode may not be settable |
 | Artifact freshness check reports red | Run `npm run build` on the host and commit the rebuilt `lib/` (equivalent to CI's "committed artifacts are current") |
 | First build is slow | It pulls `node:24-bookworm-slim`; later builds hit the layer cache |
-| A package download misbehaves or registry state looks stale | The named volumes `dsh-testbed-llm-newapi_npm-cache` and `dsh-testbed-llm-newapi_pnpm-store` hold package caches; if you suspect cache corruption, `docker volume rm` them and rerun (the cost is re-downloading) |
+| A package download misbehaves or registry state looks stale | The named volumes `dsh-testbed-llm-omniroute_npm-cache` and `dsh-testbed-llm-omniroute_pnpm-store` hold package caches; if you suspect cache corruption, `docker volume rm` them and rerun (the cost is re-downloading) |
 | A grid reports FAIL | Read the tail of `testbed/.out/<version>-<combo>.log` first; `[freshness]` or the wording `镜像陈旧` ("stale image", the literal string the script prints) means the image did not follow the sources — see **Known limitations and caveats**, item 4 (image-freshness trap) |
 
 ## Known limitations and caveats
@@ -180,7 +180,7 @@ In one full run (`PROFILE_MODE=preserve DSH_VERSION=0.1.5-rc.1`, on an npm-layou
 3 third-party bundle rows of the host profile — `superpowers-dsh`, `dsh-quota-panel`,
 `@creait/dsh-tailnet-gateway` — were **restored successfully with 0 warnings**, the `bundles:` line
 listed every row (`@deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app, superpowers-dsh, dsh-quota-panel,
-@creait/dsh-tailnet-gateway, dsh-llm-newapi`), the assembly assertion passed, and the run exited **0
+@creait/dsh-tailnet-gateway, dsh-omniroute`), the assembly assertion passed, and the run exited **0
 with two runs giving identical results** (both runs used
 `STEPS=assert,seed,stage,l1,pack,profile`, i.e. **L2 was not run**); the `minimal` regression run
 around it was green too. The spec's only open risk — "npm/pnpm layout mixing" — therefore **does not
@@ -246,7 +246,7 @@ but read it together with limitations 1 and 3 below.
 10. **`DOCKER_CONFIG`.** Host-side `docker compose` invocations need a writable in-repo directory:
     `export DOCKER_CONFIG="$PWD/.docker-config"` (under some sandboxes `/root/.docker` is
     read-only). `matrix.mjs` sets it automatically.
-11. **Scope limits.** No browser E2E (real GUI rendering) and no real upstream (NewAPI etc.) calls;
+11. **Scope limits.** No browser E2E (real GUI rendering) and no real upstream (OmniRoute etc.) calls;
     L2 drives the server with a curl probe instead. This environment does not modify CI and does
     not take the host's port 3080.
 12. **The default matrix follows the registry's host line.** `node matrix.mjs` resolves the

@@ -10,7 +10,7 @@
  * declaration-merged block types retain the adapter's documented extension
  * fallback. No reasoning-control fields are emitted: the adapter declares no
  * reasoning efforts, so callers cannot pass one.
- * @module dsh-llm-newapi/serialize
+ * @module dsh-omniroute/serialize
  */
 import type { GenerateOptions, RequestMessage } from '@deepseek-ai/dsh-llm';
 import type { WireMessage, WireRequest } from './types.js';

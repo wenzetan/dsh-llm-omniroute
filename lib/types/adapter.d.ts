@@ -1,71 +1,45 @@
 /**
- * `NewApiAdapter`: fetch + SSE against a NewAPI (OpenAI-compatible) gateway,
- * emitting harness StreamChunks. The adapter is transport-only: connection
- * facts arrive through a thunk resolved once per operation and the bearer
- * token through a per-request resolver, so the registering plugin owns
- * validation, layering, and credential policy. No reasoning-control fields
- * are emitted and no harness telemetry headers are sent: the mandatory
+ * `OmniRouteAdapter`: fetch + SSE against an OmniRoute (OpenAI-compatible
+ * aggregation gateway), emitting harness StreamChunks. The adapter is
+ * transport-only: connection facts arrive through a thunk resolved once per
+ * operation and the bearer token through a per-request resolver, so the
+ * registering plugin owns validation, layering, and credential policy. The
+ * selected reasoning effort travels either as `reasoning_effort` or folded
+ * into the wire model id, decided by {@link resolveWireModel} over the
+ * persisted catalog. No harness telemetry headers are sent: the mandatory
  * attribution `User-Agent` is the only product identity on the wire.
  *
- * @module dsh-llm-newapi/adapter
+ * @module dsh-omniroute/adapter
  */
 import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 import type { GenerateOptions, LlmDiscoveredModel, LlmModelDiscoveryRequest, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm';
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials';
+import type { OmniRouteCatalogModel } from './catalog.js';
+import type { OmniRouteWebOptions } from './web.js';
 import type { ModelsDevApi, ModelsDevMatch, ModelsDevParamsRequest, ModelsDevParamsResponse, ProviderHints, WireError } from './types.js';
 /** Prefix for adapter-raised diagnostics. */
-export declare const PKG = "llm-newapi";
-/**
- * Default case-insensitive id substrings excluding non-chat models from
- * discovery. NewAPI gateways aggregate every enabled channel into
- * `GET /models` — embedding (`text-embedding-*`) and rerank (`*rerank*`,
- * `*reranker*`) families among them — and the OpenAI listing shape carries
- * no capability metadata, so chat-compatibility filtering is naming-convention
- * based. Name heuristics cannot catch every multi-capability id (`bge-m3`
- * embeds and reranks under a bare name); `modelExcludePatterns` in config
- * replaces this list for deployments that know better, and an empty array
- * disables filtering entirely.
- */
-export declare const DEFAULT_MODEL_EXCLUDE_PATTERNS: readonly string[];
-/** One optional model entry advertised by this adapter. */
-export interface NewApiCatalogModel {
-    /** Wire model id accepted by the configured gateway. */
-    id: string;
-    /** Selector label; defaults to {@link id}. */
-    name?: string;
-    /** Optional selector detail for deployments with similar model variants. */
-    description?: string;
-    /** Known combined request/response context capacity; omitted when deployment metadata is unavailable. */
-    contextWindow?: number;
-    /** Per-request output cap for this model; omission falls back to the profile's {@link NewApiConnectionOptions.maxTokens}. */
-    maxTokens?: number;
-    /** Supported reasoning-effort ids; presence offers the effort selector. */
-    reasoningEfforts?: string[];
-    /**
-     * Preset default effort for this model; must be one of
-     * {@link reasoningEfforts}. Absence defaults to the highest declared rung.
-     */
-    defaultReasoningEffort?: string;
-}
+export declare const PKG = "llm-omniroute";
+export { DEFAULT_MODEL_EXCLUDE_PATTERNS, displayModelName, modelNameFromId, parseOmniRouteCatalog } from './catalog.js';
+export type { OmniRouteCatalogModel, ParseCatalogOptions } from './catalog.js';
 /**
  * Validated connection facts for one operation. The plugin's
  * `resolveAdapterOptions` is the one explicit resolve step producing this
  * shape; the adapter trusts it and re-reads it per operation, which is what
  * makes a configuration change reach the next request without re-registration.
  */
-export interface NewApiConnectionOptions {
+export interface OmniRouteConnectionOptions {
     /** Gateway base including the `/v1` prefix; `/chat/completions` and `/models` are appended. */
     baseURL: string;
     /**
      * Credential reference of this same resolution, resolved per request.
      * Travelling with the endpoint is the point: a request can never pair one
      * generation's URL with another generation's secret. The reference is the
-     * fixed id `newapi` — the web settings page owns the value, and a literal
+     * fixed id `omniroute` — the web settings page owns the value, and a literal
      * key is not a configuration value.
      */
     apiKeyRef: CredentialRef;
     /** Advisory models exposed to discovery consumers; requests remain unrestricted. */
-    models: readonly NewApiCatalogModel[];
+    models: readonly OmniRouteCatalogModel[];
     /**
      * Case-insensitive id substrings excluding discovered models that cannot
      * serve chat completions; the hand-curated {@link models} catalog is never
@@ -88,18 +62,24 @@ export interface NewApiConnectionOptions {
     providerHints: ProviderHints;
     /** Provider-owned model-request retry policy, already resolved. */
     retryPolicy: ResolvedRetryPolicy;
+    /**
+     * The web seam's facts for the same generation: gateway endpoint plus the
+     * search/fetch knobs. Resolved with the connection so the two can never drift
+     * apart, and so both inherit the same last-good fallback.
+     */
+    web: OmniRouteWebOptions;
 }
-/** Constructor options for {@link NewApiAdapter}: the operation-local resolution hooks the plugin owns. */
-export interface NewApiAdapterOptions {
+/** Constructor options for {@link OmniRouteAdapter}: the operation-local resolution hooks the plugin owns. */
+export interface OmniRouteAdapterOptions {
     /** Current validated connection facts; called once per operation. */
-    options: () => NewApiConnectionOptions;
+    options: () => OmniRouteConnectionOptions;
     /**
      * Resolve the bearer token for the connection facts of one request. The
      * snapshot is passed in — never re-read — so the key can only ever come
      * from the same resolution as the endpoint it is sent to. Throws `LlmError`
      * `MISSING_CREDENTIAL` when the credentials store holds no value.
      */
-    resolveApiKey: (connection: NewApiConnectionOptions) => Promise<string>;
+    resolveApiKey: (connection: OmniRouteConnectionOptions) => Promise<string>;
     /**
      * Name the provider route that officially serves a model id, so a
      * multi-provider catalog match can put the vendor's own facts first.
@@ -145,28 +125,6 @@ export declare function matchModelsDev(api: ModelsDevApi, id: string, hints?: Pr
  */
 export declare function normalizeBaseUrl(raw: string): string;
 /**
- * Derive a human display name from a gateway model id when the listing
- * supplied none: take the last `/` segment (routed ids carry their vendor
- * as a path prefix), turn `-` into spaces, and capitalize each word's first
- * letter — except brand words, which keep their own spelling (`glm` → GLM,
- * `gpt` → GPT, `deepseek` → DeepSeek). A lone trailing letter reads as a
- * size marker and goes uppercase too. A routed id appends its verbatim
- * prefix in brackets: `deepseek-ai/deepseek-v4-flash` →
- * `DeepSeek V4 Flash[deepseek-ai]`.
- * @param id - the full gateway model id.
- * @returns the generated display name.
- */
-export declare function modelNameFromId(id: string): string;
-/**
- * Display name for one gateway model id: the name the gateway listing
- * supplied when it has one, else {@link modelNameFromId} over the id. The
- * full id always stays the wire value the gateway answers to.
- * @param id - the full gateway model id.
- * @param listed - the name the gateway listing itself supplied, if any.
- * @returns the listed name when present, else the generated name.
- */
-export declare function displayModelName(id: string, listed?: string): string;
-/**
  * Map an HTTP status to a stable LlmError code.
  * @param status - status of a non-2xx gateway response.
  * @param error - parsed gateway error body, when available.
@@ -174,30 +132,60 @@ export declare function displayModelName(id: string, listed?: string): string;
  */
 export declare function httpErrorCode(status: number, error?: WireError['error']): string;
 /**
- * The NewAPI gateway adapter. One instance serves every model name it was
+ * The OmniRoute gateway adapter. One instance serves every model name it was
  * registered under (the harness model name IS the wire model name).
  *
  * One stable signal reaches both initial fetch and body reads. Caller aborts
  * map to `ABORTED`; the configured per-read idle watchdog maps to `TIMEOUT`.
  */
-export declare class NewApiAdapter extends LlmAdapter {
+export declare class OmniRouteAdapter extends LlmAdapter {
     private readonly config;
-    constructor(config: NewApiAdapterOptions);
+    constructor(config: OmniRouteAdapterOptions);
     providerInfo(provider: string): LlmProviderInfo;
     providerRetryPolicy(_provider: string): ResolvedRetryPolicy;
     listModels(provider: string): Promise<readonly LlmModelInfo[]>;
     resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;
     /**
+     * Fetch and parse one gateway `/models` listing into catalog rows. The one
+     * place that knows the endpoint, the credential choice, and the error
+     * vocabulary; discovery, the settings-page catalog fetch, and any future
+     * consumer share it.
+     * @param request - the draft endpoint/credential, when a settings form is editing one.
+     * @param signal - caller cancellation.
+     * @returns the parsed rows, sorted by id.
+     */
+    private catalogRows;
+    /**
      * Interrogate one gateway endpoint for the models it advertises, serving
      * the settings-namespace discovery the plugin registered. A draft being
      * edited supplies its own base and one-shot credential; otherwise both
      * come from the current connection snapshot.
+     *
+     * The rows are the collapsed ones (`./catalog.ts`): one entry per native
+     * model id, with the level-carrying variants folded away. Context, output
+     * cap and vision come from the listing's own capability facts, so an
+     * adoption no longer needs a second catalog to be useful.
      * @param request - the discovery draft (endpoint, protocol, credential).
      * @param signal - caller cancellation, supplied separately by the runtime.
-     * @returns the advertised models, deduplicated by the runtime, enriched
-     *   with context/maxTokens facts from the configured catalog when ids match.
+     * @returns the advertised models, deduplicated by the runtime.
      */
     discoverModels(request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<readonly LlmDiscoveredModel[]>;
+    /**
+     * Serve the settings page's rich catalog fetch over the plugin's own RPC
+     * channel: the same `/models` interrogation as {@link discoverModels}, but
+     * with the facts an adoption persists (thinking levels, the level → model-id
+     * map, vision and tool capability, capacities) instead of the reduced
+     * discovery shape the harness declares.
+     * @param request - the draft endpoint/credential from the settings form.
+     * @param signal - caller cancellation.
+     * @returns the rows the form adopts verbatim.
+     */
+    fetchCatalog(request: {
+        baseURL?: string;
+        apiKey?: string;
+    }, signal: AbortSignal): Promise<{
+        models: OmniRouteCatalogModel[];
+    }>;
     /**
      * Download the models.dev catalog (optionally through the configured
      * forward proxy) and match every requested gateway id against it, serving

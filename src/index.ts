@@ -1,5 +1,5 @@
 /**
- * Register a {@link NewApiAdapter} for the `newapi` provider route on
+ * Register a {@link OmniRouteAdapter} for the `omniroute` provider route on
  * `ctx.llm`, with connection facts resolved per request instead of frozen at
  * load: the plugin reads its own volatile config references (the profile
  * patch and the web settings page write them through the settings service)
@@ -8,9 +8,11 @@
  * very next request without re-applying the plugin, while an in-flight stream
  * keeps the facts it started with. The one registration-captured fact — the
  * retry policy — re-registers the route in place when it changes. The plugin
- * also serves model discovery for the `llm-newapi` settings namespace by
- * interrogating `GET {baseURL}/models`.
- * @module dsh-llm-newapi
+ * also serves model discovery for the `llm-omniroute` settings namespace by
+ * interrogating `GET {baseURL}/models`, and — once a composition provides the
+ * web seam — registers the gateway's own retrieval stack as the `omniroute`
+ * search and fetch providers.
+ * @module dsh-omniroute
  */
 
 import type { Context, VolatileSnapshot } from '@deepseek-ai/cordis'
@@ -23,17 +25,29 @@ import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 // Type-only: pulls the cordis Context merge that adds the `settings`
 // service (ctx.settings.configure) into this program.
 import type {} from '@deepseek-ai/dsh-settings'
+// Type-only: pulls the cordis Context merge that adds the `web` service
+// (ctx.web.registerSearchProvider / registerFetchProvider).
+import type {} from '@deepseek-ai/dsh-web'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_MODEL_EXCLUDE_PATTERNS,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
-  NewApiAdapter,
+  OmniRouteAdapter,
   normalizeBaseUrl,
   PKG,
 } from './adapter.ts'
-import type { NewApiCatalogModel, NewApiConnectionOptions } from './adapter.ts'
-import type { ModelsDevParamsRequest, ProviderHints } from './types.ts'
+import type { OmniRouteCatalogModel, OmniRouteConnectionOptions } from './adapter.ts'
+import {
+  DEFAULT_FETCH_MAX_CHARS,
+  DEFAULT_SNIPPET_MAX_CHARS,
+  DEFAULT_WEB_MAX_RESULTS,
+  DEFAULT_WEB_TIMEOUT_MS,
+  OmniRouteFetchProvider,
+  OmniRouteSearchProvider,
+} from './web.ts'
+import type { OmniRouteWebOptions, WebFetchFormat } from './web.ts'
+import type { CatalogRequest, ModelsDevParamsRequest, ProviderHints } from './types.ts'
 import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
 
 export {
@@ -43,12 +57,24 @@ export {
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   matchModelsDev,
   modelNameFromId,
-  NewApiAdapter,
+  OmniRouteAdapter,
   normalizeBaseUrl,
   PKG,
 } from './adapter.ts'
+export { parseOmniRouteCatalog, resolveWireModel } from './catalog.ts'
 export { serializeRequest } from './serialize.ts'
-export type { NewApiAdapterOptions, NewApiCatalogModel, NewApiConnectionOptions } from './adapter.ts'
+export {
+  DEFAULT_FETCH_MAX_CHARS,
+  DEFAULT_SNIPPET_MAX_CHARS,
+  DEFAULT_WEB_MAX_RESULTS,
+  DEFAULT_WEB_TIMEOUT_MS,
+  OmniRouteFetchProvider,
+  OmniRouteSearchProvider,
+  WEB_PROVIDER_ID,
+  mapSearchResponse,
+} from './web.ts'
+export type { OmniRouteWebOptions, WebFetchFormat, WebRuntimeHooks } from './web.ts'
+export type { OmniRouteAdapterOptions, OmniRouteCatalogModel, OmniRouteConnectionOptions } from './adapter.ts'
 export type * from './types.ts'
 
 const MINIMUM_DSH_VERSION = '0.2.0-rc.2'
@@ -101,7 +127,7 @@ function isSupportedHostVersion(version: string): boolean {
 const hostLlmVersion = typeof llmManifest.version === 'string' ? llmManifest.version : 'unknown'
 if (!isSupportedHostVersion(hostLlmVersion)) {
   throw new Error(
-    `dsh-llm-newapi requires dsh >= ${MINIMUM_DSH_VERSION} ` +
+    `dsh-omniroute requires dsh >= ${MINIMUM_DSH_VERSION} ` +
     `(host ships @deepseek-ai/dsh-llm ${hostLlmVersion}); ` +
     `upgrade the host: npm install -g @deepseek-ai/dsh@${MINIMUM_DSH_VERSION}`,
   )
@@ -122,34 +148,59 @@ function deepEqualJson(left: unknown, right: unknown): boolean {
   return keys.every(key => key in rightRecord && deepEqualJson(leftRecord[key], rightRecord[key]))
 }
 
-export const name = 'llm-newapi'
+export const name = 'llm-omniroute'
 export const inject = ['llm']
 
-const NS = 'llm-newapi'
+const NS = 'llm-omniroute'
 /**
  * Fixed credential reference for the gateway API key. Deliberately not an
  * environment-variable-style name: the inherited process environment is the
- * credentials service's read-only top layer, so an `NEWAPI_API_KEY`-style
+ * credentials service's read-only top layer, so an `OMNIROUTE_API_KEY`-style
  * ref would let a stray exported variable shadow the web-stored key and lock
- * the settings input read-only. `newapi` names the route, and the web
+ * the settings input read-only. `omniroute` names the route, and the web
  * settings page is the one configuration surface for the value.
  */
-const API_KEY_REF = 'newapi'
+const API_KEY_REF = 'omniroute'
 /** Environment variable naming this provider's endpoint, honored only from trusted layers. */
-const BASE_URL_ENV = 'NEWAPI_BASE_URL'
-/** Placeholder gateway base used when neither config nor environment names one. */
-export const DEFAULT_BASE_URL = 'https://newapi.example.com/v1'
+const BASE_URL_ENV = 'OMNIROUTE_BASE_URL'
+/** Default gateway base: OmniRoute's own default port on loopback, used when neither config nor environment names one. */
+export const DEFAULT_BASE_URL = 'http://127.0.0.1:20128/v1'
 /** The single provider route this plugin owns. */
-const PROVIDER = 'newapi'
+const PROVIDER = 'omniroute'
+
+/**
+ * Web-seam settings: the gateway's own search and fetch stack. The two
+ * providers register into `ctx.web` under the id `omniroute` when a
+ * composition provides that seam; a composition without it simply never
+ * registers them, and the chat route is unaffected either way.
+ */
+export interface OmniRouteWebConfig {
+  /** Whether the search and fetch providers register at all (default true). */
+  enabled?: boolean
+  /** Pin one gateway search provider id (e.g. `exa-search`); blank lets the gateway route per query. */
+  searchProvider?: string
+  /** Sources requested when the search tool sets no bound (default 8). */
+  maxResults?: number
+  /** Per-source snippet character budget (default 600); clipped snippets keep one search from flooding the context. */
+  snippetMaxChars?: number
+  /** Pin one gateway fetch provider id (e.g. `firecrawl`); blank lets the gateway route. */
+  fetchProvider?: string
+  /** Extraction format requested from the gateway (default `markdown`). */
+  fetchFormat?: WebFetchFormat
+  /** Decoded page budget in characters (default 100,000), mirroring `dsh-web-fetch-http`. */
+  fetchMaxChars?: number
+  /** One-operation budget for either web endpoint (default 30 seconds). */
+  timeoutMs?: number
+}
 
 /**
  * Plugin config values, validated by the same-named schemastery schema and
- * doubling as the `llm-newapi` settings-section shape. Every field is
- * optional in yml: `baseURL` falls back to $NEWAPI_BASE_URL from a trusted
+ * doubling as the `llm-omniroute` settings-section shape. Every field is
+ * optional in yml: `baseURL` falls back to $OMNIROUTE_BASE_URL from a trusted
  * environment layer, then the placeholder {@link DEFAULT_BASE_URL} — a
  * request against the placeholder fails as TRANSPORT at first use, naming the
  * endpoint to fix. The API key is not a config value at all: it lives in the
- * credentials store under the fixed reference `newapi` (the web settings
+ * credentials store under the fixed reference `omniroute` (the web settings
  * page writes it), and a request without any stored key fails with
  * `MISSING_CREDENTIAL`, not at plugin load.
  *
@@ -157,11 +208,11 @@ const PROVIDER = 'newapi'
  * writes; the running plugin reads the schema-derived {@link Config} whose
  * volatile fields are references (see {@link snapshotConfig}).
  */
-export interface NewApiConfig {
-  /** Gateway base including the `/v1` prefix; defaults to $NEWAPI_BASE_URL from a trusted layer, then the placeholder `https://newapi.example.com/v1`. */
+export interface OmniRouteConfig {
+  /** Gateway base including the `/v1` prefix; defaults to $OMNIROUTE_BASE_URL from a trusted layer, then the placeholder `https://omniroute.example.com/v1`. */
   baseURL?: string
   /** Advisory models shown by discovery consumers; defaults to none — a gateway's model set is deployment-specific. */
-  models?: NewApiCatalogModel[]
+  models?: OmniRouteCatalogModel[]
   /**
    * Case-insensitive id substrings excluding discovered models that cannot
    * serve chat completions (embedding, rerank, ranker families). Replaces the
@@ -186,6 +237,8 @@ export interface NewApiConfig {
   providerHints?: ProviderHints
   /** Provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
+  /** Gateway-backed `web_search` / `web_fetch` providers for the `ctx.web` seam. */
+  web?: OmniRouteWebConfig
 }
 
 /** Forward-proxy settings for the models.dev catalog download. */
@@ -196,14 +249,17 @@ export interface ProxyConfig {
   url?: string
 }
 
-const catalogModel: z<NewApiCatalogModel> = z.object({
+const catalogModel: z<OmniRouteCatalogModel> = z.object({
   id: z.string().required(),
   name: z.string(),
   description: z.string(),
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
+  vision: z.boolean(),
+  toolCalling: z.boolean(),
   reasoningEfforts: z.array(z.string()),
   defaultReasoningEffort: z.string(),
+  effortModels: z.object({}),
 })
 
 /** Default forward proxy: the conventional Clash port on loopback. */
@@ -284,6 +340,27 @@ const excludePatternsField = z.transform(
   },
 )
 
+/** The web-seam block; the resolver re-judges every bound at runtime. */
+const webField = z.transform(z.object({
+  enabled: z.boolean().default(true),
+  searchProvider: z.string().default(''),
+  maxResults: z.number().step(1).min(1).max(100).default(DEFAULT_WEB_MAX_RESULTS),
+  snippetMaxChars: z.number().step(1).min(1).default(DEFAULT_SNIPPET_MAX_CHARS),
+  fetchProvider: z.string().default(''),
+  fetchFormat: z.union([z.const('markdown'), z.const('html'), z.const('links'), z.const('screenshot')]).default('markdown'),
+  fetchMaxChars: z.number().step(1).min(1).default(DEFAULT_FETCH_MAX_CHARS),
+  timeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_WEB_TIMEOUT_MS),
+}), (value): OmniRouteWebConfig => {
+  // The inner schema has already normalized every field; the nullable input
+  // type only mirrors what validate() accepts, and the resolver below is the
+  // one place that judges the bounds — the same resolver the runtime uses.
+  try {
+    return resolveWebSettings(value as OmniRouteWebConfig)
+  } catch (error) {
+    throw asValidationError(error)
+  }
+})
+
 const configSchema = z.object({
   baseURL: baseURLField.volatile(),
   models: modelsField.volatile(),
@@ -297,6 +374,7 @@ const configSchema = z.object({
     models: z.object({}),
   }).volatile(),
   retryPolicy: RetryPolicySchema.volatile(),
+  web: webField.volatile(),
 })
 
 /**
@@ -314,7 +392,7 @@ export const Config = configSchema
  * The config a running plugin instance holds: schemastery replaced every
  * volatile field with a stable reference, updated in place by the Loader.
  * Read plain values through {@link snapshotConfig}; the exported
- * {@link NewApiConfig} is the plain-value shape callers write.
+ * {@link OmniRouteConfig} is the plain-value shape callers write.
  */
 export type Config = ReturnType<typeof configSchema>
 
@@ -338,14 +416,15 @@ function plain<T>(snapshot: VolatileSnapshot<T> | undefined): T | undefined {
  * @param config - the config object this plugin instance was applied with.
  * @returns the plain values the resolver consumes.
  */
-function snapshotConfig(config: Config): NewApiConfig {
+function snapshotConfig(config: Config): OmniRouteConfig {
   const baseURL = plain<string>(config.baseURL.get())
   const maxTokens = plain<number>(config.maxTokens.get())
   const providerHints = plain<ProviderHints>(config.providerHints.get())
   const retryPolicy = plain<RetryPolicyConfig>(config.retryPolicy.get())
+  const web = plain<OmniRouteWebConfig>(config.web.get())
   return {
     ...baseURL === undefined ? {} : { baseURL },
-    models: plain<NewApiCatalogModel[]>(config.models.get()) ?? [],
+    models: plain<OmniRouteCatalogModel[]>(config.models.get()) ?? [],
     modelExcludePatterns:
       plain<string[]>(config.modelExcludePatterns.get()) ?? [...DEFAULT_MODEL_EXCLUDE_PATTERNS],
     defaultContextWindow: plain<number>(config.defaultContextWindow.get()) ?? DEFAULT_CONTEXT_WINDOW,
@@ -355,6 +434,7 @@ function snapshotConfig(config: Config): NewApiConfig {
     proxy: plain<ProxyConfig>(config.proxy.get()) ?? { enabled: false, url: DEFAULT_PROXY_URL },
     ...providerHints === undefined ? {} : { providerHints },
     ...retryPolicy === undefined ? {} : { retryPolicy },
+    ...web === undefined ? {} : { web },
   }
 }
 
@@ -364,10 +444,10 @@ function snapshotConfig(config: Config): NewApiConfig {
  * previous generation, so a request can never pair a stale endpoint with a
  * newer key.
  */
-export type ResolvedNewApiOptions = NewApiConnectionOptions
+export type ResolvedOmniRouteOptions = OmniRouteConnectionOptions
 
 /** Resolve, validate, and detach the advisory model catalog. */
-function resolveModels(models: readonly NewApiCatalogModel[] | undefined): NewApiCatalogModel[] {
+function resolveModels(models: readonly OmniRouteCatalogModel[] | undefined): OmniRouteCatalogModel[] {
   const seen = new Set<string>()
   return (models ?? []).map((model) => {
     if (model.id.length === 0) throw new Error(`${PKG}: catalog model ids must be non-empty`)
@@ -397,16 +477,90 @@ function resolveModels(models: readonly NewApiCatalogModel[] | undefined): NewAp
         `${PKG}: catalog model "${model.id}" default reasoning effort "${model.defaultReasoningEffort}" is not among its reasoning efforts`,
       )
     }
+    // The level → model-id map is only meaningful for a level the row
+    // declares: an entry outside the list could never be selected, and an
+    // empty model id would send a nameless request.
+    for (const [effort, wireModel] of Object.entries(model.effortModels ?? {})) {
+      if (wireModel.length === 0) {
+        throw new Error(`${PKG}: catalog model "${model.id}" maps effort "${effort}" to an empty model id`)
+      }
+      if (!(model.reasoningEfforts ?? []).includes(effort)) {
+        throw new Error(
+          `${PKG}: catalog model "${model.id}" maps effort "${effort}" but does not declare it`,
+        )
+      }
+    }
     return {
       id: model.id,
       ...model.name === undefined ? {} : { name: model.name },
       ...model.description === undefined ? {} : { description: model.description },
       ...model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow },
       ...model.maxTokens === undefined ? {} : { maxTokens: model.maxTokens },
+      ...model.vision === undefined ? {} : { vision: model.vision },
+      ...model.toolCalling === undefined ? {} : { toolCalling: model.toolCalling },
       ...model.reasoningEfforts === undefined || model.reasoningEfforts.length === 0 ? {} : { reasoningEfforts: model.reasoningEfforts },
       ...model.defaultReasoningEffort === undefined ? {} : { defaultReasoningEffort: model.defaultReasoningEffort },
+      ...model.effortModels === undefined || Object.keys(model.effortModels).length === 0
+        ? {}
+        : { effortModels: { ...model.effortModels } },
     }
   })
+}
+
+/**
+ * Validate the web block on its own. The endpoint is not part of it: the web
+ * providers send to the same gateway base the connection snapshot resolved, so
+ * one configured URL can never drift between the chat and web halves.
+ * @param config - the plain web block, or `undefined` for the defaults.
+ * @returns the resolved web knobs, without the endpoint.
+ */
+export function resolveWebSettings(
+  config: OmniRouteWebConfig | undefined,
+): Omit<OmniRouteWebOptions, 'baseURL'> {
+  const raw = config ?? {}
+  const maxResults = raw.maxResults ?? DEFAULT_WEB_MAX_RESULTS
+  if (!Number.isInteger(maxResults) || maxResults <= 0 || maxResults > 100) {
+    throw new Error(`${PKG}: web.maxResults must be an integer between 1 and 100`)
+  }
+  const snippetMaxChars = raw.snippetMaxChars ?? DEFAULT_SNIPPET_MAX_CHARS
+  if (!Number.isInteger(snippetMaxChars) || snippetMaxChars <= 0) {
+    throw new Error(`${PKG}: web.snippetMaxChars must be a positive integer`)
+  }
+  const fetchMaxChars = raw.fetchMaxChars ?? DEFAULT_FETCH_MAX_CHARS
+  if (!Number.isInteger(fetchMaxChars) || fetchMaxChars <= 0) {
+    throw new Error(`${PKG}: web.fetchMaxChars must be a positive integer`)
+  }
+  const timeoutMs = raw.timeoutMs ?? DEFAULT_WEB_TIMEOUT_MS
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMER_DELAY_MS) {
+    throw new Error(
+      `${PKG}: web.timeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
+    )
+  }
+  const fetchFormat = raw.fetchFormat ?? 'markdown'
+  if (!['markdown', 'html', 'links', 'screenshot'].includes(fetchFormat)) {
+    throw new Error(`${PKG}: web.fetchFormat must be markdown, html, links or screenshot (got: ${fetchFormat})`)
+  }
+  return {
+    enabled: raw.enabled !== false,
+    searchProvider: (raw.searchProvider ?? '').trim(),
+    maxResults,
+    snippetMaxChars,
+    fetchProvider: (raw.fetchProvider ?? '').trim(),
+    fetchFormat,
+    fetchMaxChars,
+    timeoutMs,
+  }
+}
+
+/**
+ * The web-provider options for one operation: the validated web block over the
+ * endpoint the connection snapshot resolved.
+ * @param config - the plain web block.
+ * @param baseURL - the resolved gateway base (no trailing slash).
+ * @returns the options both web providers read.
+ */
+export function resolveWebOptions(config: OmniRouteWebConfig | undefined, baseURL: string): OmniRouteWebOptions {
+  return { baseURL, ...resolveWebSettings(config) }
 }
 
 /**
@@ -420,7 +574,7 @@ function resolveModels(models: readonly NewApiCatalogModel[] | undefined): NewAp
  * the product CLI. A trusted layer may supply the gateway endpoint.
  * @returns validated connection facts plus the credential reference.
  */
-export function resolveAdapterOptions(config: NewApiConfig, environment?: ReturnType<typeof launchEnvironmentOf>): ResolvedNewApiOptions {
+export function resolveAdapterOptions(config: OmniRouteConfig, environment?: ReturnType<typeof launchEnvironmentOf>): ResolvedOmniRouteOptions {
   // Absent everywhere is the placeholder, not a load failure: the plugin stays
   // mountable so configuration surfaces can offer the route, and a request
   // against the placeholder fails as TRANSPORT at first use, naming the
@@ -463,8 +617,13 @@ export function resolveAdapterOptions(config: NewApiConfig, environment?: Return
       throw new Error(`${PKG}: proxy.url must be an http(s) URL (got: ${proxyUrlRaw})`)
     }
   }
+  const baseURL = normalizeBaseUrl(rawBase)
   return {
-    baseURL: normalizeBaseUrl(rawBase),
+    baseURL,
+    // Resolved here, not per web call: the endpoint and the key must come from
+    // ONE configuration generation, and an invalid generation must keep serving
+    // the last good one exactly as the chat route does.
+    web: resolveWebOptions(config.web, baseURL),
     apiKeyRef: credentialRef(API_KEY_REF),
     models: resolveModels(config.models),
     modelExcludePatterns,
@@ -481,11 +640,11 @@ export function resolveAdapterOptions(config: NewApiConfig, environment?: Return
 }
 
 export function apply(ctx: Context, config: Config): void {
-  let lastRaw: NewApiConfig | undefined
-  let lastGood: ResolvedNewApiOptions | undefined
+  let lastRaw: OmniRouteConfig | undefined
+  let lastGood: ResolvedOmniRouteOptions | undefined
   let registration: AdapterRegistrationHandle | undefined
-  let registeredPolicy: ResolvedNewApiOptions['retryPolicy'] | undefined
-  const options = (): ResolvedNewApiOptions => {
+  let registeredPolicy: ResolvedOmniRouteOptions['retryPolicy'] | undefined
+  const options = (): ResolvedOmniRouteOptions => {
     // Volatile references are updated in place, so every read re-snapshots;
     // the deep compare keeps one resolution per unchanged generation.
     const raw = snapshotConfig(config)
@@ -519,7 +678,7 @@ export function apply(ctx: Context, config: Config): void {
   }
   options()
 
-  const resolveApiKey = async (connection: ResolvedNewApiOptions): Promise<string> => {
+  const resolveApiKey = async (connection: ResolvedOmniRouteOptions): Promise<string> => {
     // Every credential fact comes from the caller's snapshot, so a rejected
     // settings generation cannot leak its key onto the previous endpoint.
     // The credentials store is the only source: the web settings page owns
@@ -532,10 +691,28 @@ export function apply(ctx: Context, config: Config): void {
       if (hit !== undefined) return assertUsableApiKey(hit.value, PKG, ref)
     }
     throw new LlmError(
-      `${PKG}: no API key for provider route "${PROVIDER}"; configure it on the NewAPI`
+      `${PKG}: no API key for provider route "${PROVIDER}"; configure it on the Custom Provider`
         + ` settings page in dsh web (credentials reference "${ref}")`,
       'MISSING_CREDENTIAL',
     )
+  }
+
+  /**
+   * The web providers read the same snapshot the chat route does, so a
+   * configuration change reaches the next search, fetch, or chat alike, and a
+   * generation that fails validation keeps serving the last good generation.
+   *
+   * `options()` caches the generation it resolved, and the key is taken from
+   * that very snapshot — a search can no more pair one generation's endpoint
+   * with another generation's secret than a chat request can.
+   */
+  let webSnapshot: ResolvedOmniRouteOptions | undefined
+  const webHooks = {
+    options: () => {
+      webSnapshot = options()
+      return webSnapshot.web
+    },
+    resolveApiKey: () => resolveApiKey(webSnapshot ?? options()),
   }
 
   // Official-vendor index for the models.dev params panel: model id → the
@@ -563,11 +740,11 @@ export function apply(ctx: Context, config: Config): void {
     return indexCache.byModel.get(modelId)
   }
 
-  const adapter = new NewApiAdapter({ options, resolveApiKey, officialProviderOf })
+  const adapter = new OmniRouteAdapter({ options, resolveApiKey, officialProviderOf })
   ctx.llm.registerConfigurableProviders([
     {
       provider: PROVIDER,
-      displayName: 'NewAPI',
+      displayName: 'Custom Provider',
       settingsNs: NS,
       settingsPath: [],
       // The adapter knows this route only because configuration declared it:
@@ -619,20 +796,13 @@ export function apply(ctx: Context, config: Config): void {
     }
     cctx.effect(() => registrar.register(
       cctx,
-      '/llm-newapi',
+      '/llm-omniroute',
       (endpoint: string, payload: unknown, signal: AbortSignal) => {
-        if (endpoint !== 'models-dev-params') {
-          return Promise.resolve({
-            ok: false as const,
-            error: { code: 'internal' as const, message: `llm-newapi: unknown endpoint ${endpoint}`, details: {} },
-          })
-        }
-        const request = payload as ModelsDevParamsRequest
         // Failures answer as the error envelope, never a thrown value: the
         // transport maps a thrown handler to an opaque HTTP 500, which hides
         // the actual reason (unreachable endpoint, dead proxy) from the
         // settings page that asked.
-        return adapter.fetchModelsDevParams(request, signal)
+        const answer = (promise: Promise<unknown>) => promise
           .then(value => ({ ok: true as const, value }))
           .catch((error: unknown) => ({
             ok: false as const,
@@ -642,8 +812,42 @@ export function apply(ctx: Context, config: Config): void {
               details: {},
             },
           }))
+        if (endpoint === 'models-dev-params') {
+          return answer(adapter.fetchModelsDevParams(payload as ModelsDevParamsRequest, signal))
+        }
+        if (endpoint === 'catalog') {
+          // The settings page's model fetch: the gateway's own listing, parsed
+          // into the rows an adoption persists (capacities, capabilities,
+          // thinking levels and the level → model-id map).
+          return answer(adapter.fetchCatalog(payload as CatalogRequest, signal))
+        }
+        return Promise.resolve({
+          ok: false as const,
+          error: { code: 'internal' as const, message: `llm-omniroute: unknown endpoint ${endpoint}`, details: {} },
+        })
       },
-    ), 'llm-newapi: models-dev RPC channel')
+    ), 'llm-omniroute: host RPC channel')
+  })
+
+  // The gateway's own retrieval stack, wired into the web seam under the id
+  // this plugin's bundle patch pins `web.searchProvider` / `fetchProvider` to.
+  // Injected, not required: a composition without `ctx.web` (a headless preset,
+  // or a profile that ships no web tooling) keeps the chat route and never
+  // registers these — and a composition that gains the seam later still gets
+  // them, because cordis runs the scope when the service appears.
+  ctx.inject(['web'], (webCtx) => {
+    const web = webCtx.web
+    const search = new OmniRouteSearchProvider(webHooks)
+    const fetch_ = new OmniRouteFetchProvider(webHooks)
+    webCtx.effect(() => {
+      if (!webHooks.options().enabled) return () => {}
+      const disposeSearch = web.registerSearchProvider(search)
+      const disposeFetch = web.registerFetchProvider(fetch_)
+      return () => {
+        disposeSearch()
+        disposeFetch()
+      }
+    }, 'llm-omniroute: web search and fetch providers')
   })
 
   // Settings presentation policy (0.1.7 seam): configuration now projects

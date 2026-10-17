@@ -1,18 +1,49 @@
 // @vitest-environment jsdom
 /**
- * NewApiSection behavior over a scripted wire face. These tests assert
+ * OmniRouteSection behavior over a scripted wire face. These tests assert
  * user-visible outcomes (fields rendered, calls made) — never React internals.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { NewApiSection } from '../../src/client/NewApiSection.tsx'
+import { SECTION_CSS } from '../../src/client/apply.ts'
+import { OmniRouteSection } from '../../src/client/OmniRouteSection.tsx'
 import { en } from '../../src/client/locale.ts'
 
 afterEach(cleanup)
 
 const t = (key: keyof typeof en): string => en[key]
 
-/** A wire face answering one resolved llm-newapi section (dsh 0.1.7-rc.1 Remote envelopes). */
+describe('section layout contract', () => {
+  it('gives every paragraph a class so the section stylesheet owns its spacing', async () => {
+    const api = wireFace()
+    const { container } = render(<OmniRouteSection api={api as never} t={t} />)
+    await waitFor(() => { expect(screen.getByLabelText(t('baseUrl'))).toBeTruthy() })
+
+    const section = container.querySelector('section.omniroute-section')
+    expect(section).not.toBeNull()
+    expect(section?.querySelector('.omniroute-intro')?.textContent).toBe(t('intro'))
+    // 裸段落会带上浏览器默认外边距，让每个文本块比自己的内容更高、间距不均。
+    const paragraphs = [...(section?.querySelectorAll('p') ?? [])]
+    expect(paragraphs.length).toBeGreaterThan(0)
+    for (const paragraph of paragraphs) {
+      expect(paragraph.className, `<p> without a class: ${paragraph.textContent ?? ''}`).not.toBe('')
+    }
+  })
+
+  it('keeps the layout rules the live host recipes depend on', () => {
+    // 这些数值来自运行中页面上的实测：宿主自带的按钮 28px 高、8px 圆角，模型行卡片
+    // 12px/14px 内边距配 20px 圆角，新增按钮 44px 高、16px 圆角。
+    expect(SECTION_CSS).toContain('.omniroute-section p { margin: 0; }')
+    expect(SECTION_CSS).toMatch(/\.omniroute-entry \{[\s\S]*?border-radius: 20px/)
+    expect(SECTION_CSS).toMatch(/\.omniroute-addmodel \{[\s\S]*?height: 44px/)
+    expect(SECTION_CSS).toMatch(/\.omniroute-linkbutton \{[\s\S]*?height: 28px;[\s\S]*?border-radius: 8px;/)
+    expect(SECTION_CSS).toMatch(/\.omniroute-input \{[\s\S]*?height: 28px/)
+    // 候选列表必须有界并自行滚动，否则几十个网关模型会把后续控件推到很远的下方。
+    expect(SECTION_CSS).toMatch(/\.omniroute-candidates ul \{[\s\S]*?max-height: 320px; overflow-y: auto;/)
+  })
+})
+
+/** A wire face answering one resolved llm-omniroute section (dsh 0.1.7-rc.1 Remote envelopes). */
 function wireFace(overrides: Partial<{
   describeAnswer: unknown
   credentialsAnswer: unknown
@@ -24,7 +55,7 @@ function wireFace(overrides: Partial<{
         writable: true,
         hasDocument: true,
         namespaces: [{
-          ns: 'llm-newapi',
+          ns: 'llm-omniroute',
           schema: {},
           value: { baseURL: 'http://gw.local:3000/v1', models: [{ id: 'deepseek-chat', contextWindow: 65536 }] },
           applies: 'live',
@@ -35,15 +66,19 @@ function wireFace(overrides: Partial<{
     })),
     mutateSettings: vi.fn(() => Promise.resolve({
       ok: true,
-      value: { ns: 'llm-newapi', schema: {}, value: {}, applies: 'live', secrets: [], revision: 8 },
+      value: { ns: 'llm-omniroute', schema: {}, value: {}, applies: 'live', secrets: [], revision: 8 },
     })),
     describeCredentials: vi.fn(() => Promise.resolve({
       ok: true,
-      value: overrides.credentialsAnswer ?? { newapi: { configured: true, writable: true } },
+      value: overrides.credentialsAnswer ?? { omniroute: { configured: true, writable: true } },
     })),
     setCredential: vi.fn(() => Promise.resolve({ ok: true, value: undefined })),
-    discoverModels: vi.fn(),
   }
+}
+
+/** A host catalog face answering one scripted gateway listing. */
+function catalogFace(models: ReadonlyArray<Record<string, unknown>>) {
+  return vi.fn(() => Promise.resolve({ ok: true as const, value: { models: [...models] } }))
 }
 
 /** A params face answering one scripted models.dev lookup. */
@@ -63,10 +98,10 @@ function paramsFace() {
   }))
 }
 
-describe('NewApiSection mount', () => {
+describe('OmniRouteSection mount', () => {
   it('loads the section on mount and renders the configuration form', async () => {
     const api = wireFace()
-    render(<NewApiSection api={api as never} t={t} />)
+    render(<OmniRouteSection api={api as never} t={t} />)
 
     // The form fields the user configures the provider through.
     await waitFor(() => { expect(screen.getByLabelText(t('baseUrl'))).toBeTruthy() })
@@ -80,9 +115,9 @@ describe('NewApiSection mount', () => {
     expect(api.describeSettings).toHaveBeenCalledTimes(1)
   })
 
-  it('names the missing namespace when the host has no llm-newapi section', async () => {
+  it('names the missing namespace when the host has no llm-omniroute section', async () => {
     const api = wireFace({ describeAnswer: { writable: true, hasDocument: true, namespaces: [] } })
-    render(<NewApiSection api={api as never} t={t} />)
+    render(<OmniRouteSection api={api as never} t={t} />)
 
     await waitFor(() => { expect(screen.getByText(new RegExp('not registered'))).toBeTruthy() })
     expect(screen.getByText(t('retry'))).toBeTruthy()
@@ -91,12 +126,12 @@ describe('NewApiSection mount', () => {
 
 describe('environment-supplied credential (read-only)', () => {
   const envCredential = {
-    newapi: { configured: true, writable: false, source: 'env' },
+    omniroute: { configured: true, writable: false, source: 'env' },
   }
 
   it('locks the key field with the launch-environment placeholder', async () => {
     const api = wireFace({ credentialsAnswer: envCredential })
-    render(<NewApiSection api={api as never} t={t} />)
+    render(<OmniRouteSection api={api as never} t={t} />)
 
     await waitFor(() => { expect(screen.getByLabelText(t('keyInput'))).toBeTruthy() })
     // The official ProviderEditor pattern: writable === false disables the
@@ -107,7 +142,7 @@ describe('environment-supplied credential (read-only)', () => {
 
   it('saves the section without attempting a shadowed credential write', async () => {
     const api = wireFace({ credentialsAnswer: envCredential })
-    render(<NewApiSection api={api as never} t={t} />)
+    render(<OmniRouteSection api={api as never} t={t} />)
 
     await waitFor(() => { expect(screen.getByLabelText(t('baseUrl'))).toBeTruthy() })
     fireEvent.change(screen.getByLabelText(t('baseUrl')), { target: { value: 'http://other:3000/v1' } })
@@ -126,7 +161,7 @@ describe('models.dev params update', () => {
         writable: true,
         hasDocument: true,
         namespaces: [{
-          ns: 'llm-newapi',
+          ns: 'llm-omniroute',
           schema: {},
           value: {
             baseURL: 'http://gw.local:3000/v1',
@@ -139,7 +174,7 @@ describe('models.dev params update', () => {
       },
     })
     const fetchModelParams = paramsFace()
-    render(<NewApiSection api={api as never} t={t} fetchModelParams={fetchModelParams as never} />)
+    render(<OmniRouteSection api={api as never} t={t} fetchModelParams={fetchModelParams as never} />)
 
     await waitFor(() => { expect(screen.getByText(t('updateParams'))).toBeTruthy() })
     fireEvent.click(screen.getByText(t('updateParams')))
@@ -166,7 +201,7 @@ describe('models.dev params update', () => {
     await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
     const models = api.mutateSettings.mock.calls[0][1]
       .find((op: { path: string[] }) => op.path[0] === 'models').value
-    expect(models[0]).toEqual({ id: 'deepseek-chat', contextWindow: 128_000, maxTokens: 8_192, reasoningEfforts: ['low', 'medium', 'high'] })
+    expect(models[0]).toEqual({ id: 'deepseek-chat', contextWindow: 128_000, maxTokens: 8_192, reasoningEfforts: ['low', 'medium', 'high'], defaultReasoningEffort: 'high' })
     expect(models[1]).toEqual({ id: 'qwen/qwen-max', contextWindow: 262_144, maxTokens: 32_768 })
     expect(models[2]).toEqual({ id: 'mystery-model' })
   })
@@ -174,7 +209,7 @@ describe('models.dev params update', () => {
   it('fill-blank mode keeps values the rows already carry', async () => {
     const api = wireFace()
     const fetchModelParams = paramsFace()
-    render(<NewApiSection api={api as never} t={t} fetchModelParams={fetchModelParams as never} />)
+    render(<OmniRouteSection api={api as never} t={t} fetchModelParams={fetchModelParams as never} />)
 
     await waitFor(() => { expect(screen.getByText(t('updateParams'))).toBeTruthy() })
     // The fixture row already has contextWindow 65536; blank mode keeps it and only fills maxTokens.
@@ -186,13 +221,13 @@ describe('models.dev params update', () => {
     await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
     const models = api.mutateSettings.mock.calls[0][1]
       .find((op: { path: string[] }) => op.path[0] === 'models').value
-    expect(models[0]).toEqual({ id: 'deepseek-chat', contextWindow: 65_536, maxTokens: 8_192, reasoningEfforts: ['low', 'medium', 'high'] })
+    expect(models[0]).toEqual({ id: 'deepseek-chat', contextWindow: 65_536, maxTokens: 8_192, reasoningEfforts: ['low', 'medium', 'high'], defaultReasoningEffort: 'high' })
   })
 
   it('sends the proxy url only while the toggle is on, and persists the proxy section', async () => {
     const api = wireFace()
     const fetchModelParams = paramsFace()
-    render(<NewApiSection api={api as never} t={t} fetchModelParams={fetchModelParams as never} />)
+    render(<OmniRouteSection api={api as never} t={t} fetchModelParams={fetchModelParams as never} />)
 
     await waitFor(() => { expect(screen.getByLabelText(t('proxyToggle'))).toBeTruthy() })
     fireEvent.click(screen.getByText(t('updateParams')))
@@ -215,7 +250,7 @@ describe('models.dev params update', () => {
 
   it('states that the proxy setting only scopes the models.dev download', async () => {
     const api = wireFace()
-    render(<NewApiSection api={api as never} t={t} fetchModelParams={paramsFace() as never} />)
+    render(<OmniRouteSection api={api as never} t={t} fetchModelParams={paramsFace() as never} />)
 
     await waitFor(() => { expect(screen.getByLabelText(t('proxyToggle'))).toBeTruthy() })
     // The host (dsh 0.1.7) installs a global proxy dispatcher, so the plugin
@@ -227,11 +262,11 @@ describe('models.dev params update', () => {
 describe('model catalog', () => {
   it('sorts fetched candidates by id and the adopted rows keep that order', async () => {
     const api = wireFace()
-    api.discoverModels.mockResolvedValueOnce({
-      ok: true,
-      value: [{ id: 'zhipu/glm-5.3' }, { id: 'aa-first' }, { id: 'deepseek-chat' }],
-    })
-    render(<NewApiSection api={api as never} t={t} fetchModelParams={paramsFace() as never} />)
+    const fetchCatalog = catalogFace([{ id: 'zhipu/glm-5.3' }, { id: 'aa-first' }, { id: 'deepseek-chat' }])
+    render(<OmniRouteSection
+      api={api as never} t={t}
+      fetchModelParams={paramsFace() as never} fetchCatalog={fetchCatalog as never}
+    />)
 
     await waitFor(() => { expect(screen.getByText(t('fetchModels'))).toBeTruthy() })
     fireEvent.click(screen.getByText(t('fetchModels')))
@@ -256,9 +291,31 @@ describe('model catalog', () => {
       .find((op: { path: string[] }) => op.path[0] === 'models').value
   }
 
+  it('keeps the fetched-model picker in one bounded panel with its actions in a footer', async () => {
+    const api = wireFace()
+    const fetchCatalog = catalogFace([{ id: 'alpha' }, { id: 'beta' }])
+    const { container } = render(<OmniRouteSection
+      api={api as never} t={t}
+      fetchModelParams={paramsFace() as never} fetchCatalog={fetchCatalog as never}
+    />)
+
+    await waitFor(() => { expect(screen.getByText(t('fetchModels'))).toBeTruthy() })
+    fireEvent.click(screen.getByText(t('fetchModels')))
+    await waitFor(() => { expect(screen.getByText(t('fetchAdopt'))).toBeTruthy() })
+
+    const panel = container.querySelector('.omniroute-candidates')
+    expect(panel).not.toBeNull()
+    // 列表与操作按钮都在同一个面板内：面板本身是滚动区域里的一个整体，
+    // 按钮不再作为裸兄弟节点排在列表之后。
+    expect(panel?.querySelector('ul')).not.toBeNull()
+    const footer = panel?.querySelector('.omniroute-candidates-footer')
+    expect(footer).not.toBeNull()
+    expect(footer?.querySelectorAll('button').length).toBe(2)
+  })
+
   it('folds capacities behind the row disclosure and adopts K/M entry', async () => {
     const api = wireFace()
-    render(<NewApiSection api={api as never} t={t} />)
+    render(<OmniRouteSection api={api as never} t={t} />)
 
     await waitFor(() => { expect(screen.getByLabelText(t('baseUrl'))).toBeTruthy() })
     // Capacities are not on the row until its disclosure opens.
@@ -274,9 +331,145 @@ describe('model catalog', () => {
     expect(savedModels(api)[0].contextWindow).toBe(256_000)
   })
 
+  it('adopts the gateway capabilities and preselects None for a no-thinking route', async () => {
+    const api = wireFace({ describeAnswer: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [{
+        ns: 'llm-omniroute',
+        schema: {},
+        value: { baseURL: 'http://gw.local:3000/v1', models: [] },
+        applies: 'live',
+        secrets: [],
+        revision: 7,
+      }],
+    } })
+    const fetchCatalog = catalogFace([
+      {
+        id: 'no-think/agy/claude-sonnet-4-6',
+        name: 'no-think/claude-sonnet-4-6',
+        contextWindow: 1_000_000,
+        maxTokens: 64_000,
+        vision: true,
+        toolCalling: true,
+        reasoningEfforts: ['none'],
+        defaultReasoningEffort: 'none',
+      },
+      {
+        id: 'agy/gemini-3.8-flash',
+        name: 'Gemini 3.8 Flash[agy]',
+        contextWindow: 1_048_576,
+        maxTokens: 65_536,
+        reasoningEfforts: ['low', 'high'],
+        defaultReasoningEffort: 'high',
+        effortModels: { high: 'agy/gemini-3.8-flash-high', low: 'agy/gemini-3.8-flash-low' },
+      },
+    ])
+    render(<OmniRouteSection
+      api={api as never} t={t}
+      fetchModelParams={paramsFace() as never} fetchCatalog={fetchCatalog as never}
+    />)
+
+    await waitFor(() => { expect(screen.getByText(t('fetchModels'))).toBeTruthy() })
+    fireEvent.click(screen.getByText(t('fetchModels')))
+    await waitFor(() => { expect(screen.getByText(t('fetchAdopt'))).toBeTruthy() })
+    // The candidate list previews what the gateway declared.
+    expect(screen.getByText(new RegExp('no-think/agy/claude-sonnet-4-6'))).toBeTruthy()
+    fireEvent.click(screen.getByText(t('fetchAdopt')))
+    await waitFor(() => { expect(screen.getByLabelText(`${t('modelId')} 1`)).toBeTruthy() })
+
+    // Adoption orders rows by id, so the two adopted rows are
+    // (1) the folded `agy/…` route and (2) the no-thinking one.
+    fireEvent.click(screen.getByLabelText(`${t('modelAdvanced')} 1`))
+    const levelSelect = await waitFor(() => screen.getByLabelText(`${t('defaultEffort')} 1`) as HTMLSelectElement)
+    expect([...levelSelect.options].map(option => option.value)).toEqual(['low', 'high'])
+    expect(levelSelect.value).toBe('high')
+    expect(screen.getByText(new RegExp('agy/gemini-3.8-flash-high'))).toBeTruthy()
+
+    // A no-thinking route shows None as its single, preselected level.
+    fireEvent.click(screen.getByLabelText(`${t('modelAdvanced')} 2`))
+    const noneSelect = await waitFor(() => screen.getByLabelText(`${t('defaultEffort')} 2`) as HTMLSelectElement)
+    expect(noneSelect.value).toBe('none')
+    expect(noneSelect.options[0]?.textContent).toBe(t('effortNone'))
+    // Both disclosures are open, and both routes are id-bound: the folded one
+    // shows its level → id map, the no-thinking one the plain notice.
+    expect(screen.getAllByText(new RegExp(t('effortIdBound')))).toHaveLength(2)
+
+    fireEvent.click(screen.getByText(t('apply')))
+    await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
+    const saved = savedModels(api)
+    expect(saved[0]).toEqual({
+      id: 'agy/gemini-3.8-flash',
+      name: 'Gemini 3.8 Flash[agy]',
+      contextWindow: 1_048_576,
+      maxTokens: 65_536,
+      reasoningEfforts: ['low', 'high'],
+      defaultReasoningEffort: 'high',
+      effortModels: { high: 'agy/gemini-3.8-flash-high', low: 'agy/gemini-3.8-flash-low' },
+    })
+    expect(saved[1]).toEqual({
+      id: 'no-think/agy/claude-sonnet-4-6',
+      name: 'no-think/claude-sonnet-4-6',
+      contextWindow: 1_000_000,
+      maxTokens: 64_000,
+      vision: true,
+      toolCalling: true,
+      reasoningEfforts: ['none'],
+      defaultReasoningEffort: 'none',
+    })
+  })
+
+  it('never lets the models.dev panel overwrite id-bound levels', async () => {
+    const api = wireFace({ describeAnswer: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [{
+        ns: 'llm-omniroute',
+        schema: {},
+        value: {
+          baseURL: 'http://gw.local:3000/v1',
+          models: [{
+            id: 'agy/gemini-3.8-flash',
+            reasoningEfforts: ['low', 'high'],
+            defaultReasoningEffort: 'high',
+            effortModels: { high: 'agy/gemini-3.8-flash-high' },
+          }],
+        },
+        applies: 'live',
+        secrets: [],
+        revision: 7,
+      }],
+    } })
+    const fetchModelParams = vi.fn(() => Promise.resolve({
+      ok: true as const,
+      value: { models: [{ id: 'agy/gemini-3.8-flash', matches: [{ provider: 'google', contextWindow: 1_048_576, maxTokens: 65_536, reasoningEfforts: ['minimal', 'low', 'medium', 'high'] }] }] },
+    }))
+    render(<OmniRouteSection api={api as never} t={t} fetchModelParams={fetchModelParams as never} />)
+
+    await waitFor(() => { expect(screen.getByText(t('updateParams'))).toBeTruthy() })
+    fireEvent.click(screen.getByText(t('updateParams')))
+    await waitFor(() => { expect(screen.getByText(t('paramsOverwrite'))).toBeTruthy() })
+    // The panel says why: the levels come from the gateway's own id scheme.
+    expect(screen.getByText(t('paramsIdBoundSkipped'))).toBeTruthy()
+    fireEvent.click(screen.getByText(t('paramsOverwrite')))
+    await waitFor(() => { expect(screen.getByText(new RegExp(t('paramsApplied')))).toBeTruthy() })
+    fireEvent.click(screen.getByText(t('apply')))
+    await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
+    const saved = savedModels(api)
+    // Capacities were still adopted; the level set and its map survived.
+    expect(saved[0]).toMatchObject({
+      id: 'agy/gemini-3.8-flash',
+      contextWindow: 1_048_576,
+      maxTokens: 65_536,
+      reasoningEfforts: ['low', 'high'],
+      defaultReasoningEffort: 'high',
+      effortModels: { high: 'agy/gemini-3.8-flash-high' },
+    })
+  })
+
   it('drops an emptied name instead of storing an empty string', async () => {
     const api = wireFace()
-    render(<NewApiSection api={api as never} t={t} />)
+    render(<OmniRouteSection api={api as never} t={t} />)
 
     const name = await waitFor(() => screen.getByLabelText(`${t('modelName')} 1`))
     fireEvent.change(name, { target: { value: 'Renamed' } })
@@ -288,7 +481,7 @@ describe('model catalog', () => {
 
   it('clears every row through the clear action and saves an empty catalog', async () => {
     const api = wireFace()
-    render(<NewApiSection api={api as never} t={t} fetchModelParams={paramsFace() as never} />)
+    render(<OmniRouteSection api={api as never} t={t} fetchModelParams={paramsFace() as never} />)
 
     // The fixture carries one model row; clear removes it and the empty
     // hint appears in its place.
@@ -310,7 +503,7 @@ describe('model catalog', () => {
 
   it('adds a row through the add-model action and refuses a save with an empty id', async () => {
     const api = wireFace()
-    render(<NewApiSection api={api as never} t={t} />)
+    render(<OmniRouteSection api={api as never} t={t} />)
 
     await waitFor(() => { expect(screen.getByText(t('addModel'))).toBeTruthy() })
     fireEvent.click(screen.getByText(t('addModel')))
@@ -326,8 +519,11 @@ describe('select-all in the fetched-model picker', () => {
   /** Open the picker over a fixed candidate list and hand back the wire face. */
   async function openPicker(ids: readonly string[]) {
     const api = wireFace()
-    api.discoverModels.mockResolvedValueOnce({ ok: true, value: ids.map(id => ({ id })) })
-    render(<NewApiSection api={api as never} t={t} fetchModelParams={paramsFace() as never} />)
+    const fetchCatalog = catalogFace(ids.map(id => ({ id })))
+    render(<OmniRouteSection
+      api={api as never} t={t}
+      fetchModelParams={paramsFace() as never} fetchCatalog={fetchCatalog as never}
+    />)
     await waitFor(() => { expect(screen.getByText(t('fetchModels'))).toBeTruthy() })
     fireEvent.click(screen.getByText(t('fetchModels')))
     await waitFor(() => { expect(screen.getByText(t('fetchAdopt'))).toBeTruthy() })

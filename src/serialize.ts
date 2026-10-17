@@ -10,7 +10,7 @@
  * declaration-merged block types retain the adapter's documented extension
  * fallback. No reasoning-control fields are emitted: the adapter declares no
  * reasoning efforts, so callers cannot pass one.
- * @module dsh-llm-newapi/serialize
+ * @module dsh-omniroute/serialize
  */
 
 import { contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
@@ -28,7 +28,7 @@ function flattenText(blocks: readonly ContentBlock[]): string {
 /** Reject core image content before any text-flattening path can silently erase it. */
 function assertTextOnly(blocks: readonly ContentBlock[]): void {
   if (contentHasImage(blocks)) {
-    throw new LlmError('The NewAPI chat-completions adapter does not support image content.', 'UNSUPPORTED_CONTENT')
+    throw new LlmError('The OmniRoute chat-completions adapter does not support image content.', 'UNSUPPORTED_CONTENT')
   }
 }
 
@@ -75,10 +75,10 @@ function serializeAssistant(message: AssistantMessage): WireMessage {
  */
 function assertSupportedBlocks(message: RequestMessage): void {
   if (message.role === 'developer') {
-    throw new LlmError('The NewAPI chat-completions adapter does not support developer messages.', 'UNSUPPORTED_CONTENT')
+    throw new LlmError('The OmniRoute chat-completions adapter does not support developer messages.', 'UNSUPPORTED_CONTENT')
   }
   if (message.content.some(block => block.type === 'tool-addition' || block.type === 'tool-removal')) {
-    throw new LlmError('The NewAPI chat-completions adapter does not support tool-change blocks.', 'UNSUPPORTED_CONTENT')
+    throw new LlmError('The OmniRoute chat-completions adapter does not support tool-change blocks.', 'UNSUPPORTED_CONTENT')
   }
 }
 

@@ -1,10 +1,10 @@
 /**
- * NewAPI (OpenAI-compatible gateway) chat-completions wire format. Types only.
+ * OmniRoute (OpenAI-compatible gateway) chat-completions wire format. Types only.
  *
- * NewAPI 聚合任意上游模型并统一暴露 OpenAI 协议；本文件即该协议的请求/
+ * OmniRoute 聚合任意上游模型并统一暴露 OpenAI 协议；本文件即该协议的请求/
  * 响应/流增量形状，不含 DeepSeek 专属字段（thinking / reasoning_effort）。
  *
- * @module dsh-llm-newapi/types
+ * @module dsh-omniroute/types
  */
 
 /** Request body for `POST {baseURL}/chat/completions`. */
@@ -159,19 +159,125 @@ export interface WireError {
   error?: { message?: string; type?: string; code?: string }
 }
 
-/** `GET {baseURL}/models` response (OpenAI models.list shape, native NewAPI). */
+/** `GET {baseURL}/models` response (OpenAI models.list shape as OmniRoute extends it). */
 export interface WireModelList {
   object?: 'list'
   data?: WireModelEntry[]
 }
 
-/** One advertised model entry; gateways disclose an id and nothing else. */
+/**
+ * Capability object OmniRoute attaches to every advertised entry. Every field
+ * is optional: the gateway fills what its provider sync learned, and an
+ * unknown value stays absent rather than defaulting to a guess.
+ */
+export interface WireModelCapabilities {
+  /** The route accepts tool declarations. */
+  tool_calling?: boolean
+  /** The route can reason at all (coarse flag; see `effort_tiers` for levels). */
+  reasoning?: boolean
+  /** The route accepts image input. */
+  vision?: boolean
+  /** The gateway advertises thinking control for this route. */
+  thinking?: boolean
+  /** Provider-sync spelling of {@link thinking}. */
+  supportsThinking?: boolean
+  /** The route accepts file attachments. */
+  attachment?: boolean
+  /** The route supports structured output. */
+  structured_output?: boolean
+  /** The route accepts a temperature. */
+  temperature?: boolean
+  /**
+   * Reasoning levels the gateway advertises. Derived from a whole-provider
+   * sync rather than a per-model probe, so it can list levels a specific route
+   * rejects — see the catalog module's precedence rules.
+   */
+  effort_tiers?: string[]
+}
+
+/**
+ * One advertised model entry. Beyond the OpenAI minimum (an id) OmniRoute
+ * discloses capacities, modalities and capabilities, which is what lets this
+ * plugin map a model list without a second catalog.
+ */
 export interface WireModelEntry {
   id: string
   /** Human-readable name when the gateway supplies one. */
   name?: string
-  /** OpenAI `owned_by` field when present. */
+  /** OpenAI `owned_by` field when present; OmniRoute uses it for the provider id. */
   owned_by?: string
+  /** The id the entry was derived from (a synthesized variant carries its base here). */
+  root?: string
+  /** Combined request/response capacity. */
+  context_length?: number
+  /** Input-only capacity, when the listing discloses one separately. */
+  max_input_tokens?: number
+  /** Per-request output cap. */
+  max_output_tokens?: number
+  /** OpenAI's older spelling of {@link max_output_tokens}. */
+  max_tokens?: number
+  /** Accepted input kinds (`text`, `image`, `pdf`, `audio`, `video`, …). */
+  input_modalities?: string[]
+  /** Produced output kinds. */
+  output_modalities?: string[]
+  /** OmniRoute capability flags. */
+  capabilities?: WireModelCapabilities
+  /** Endpoints the route serves (`chat`, `embeddings`, `rerank`, …). */
+  supported_endpoints?: string[]
+  /** Wire protocol the route speaks. */
+  api_format?: string
+  /** Model family kind (`embedding`, `rerank`, …); absent for chat models. */
+  type?: string
+  /** Pricing facts, when the gateway has them. */
+  pricing?: Record<string, unknown>
+}
+
+/** Request body of `POST {baseURL}/search`. */
+export interface WireSearchRequest {
+  query: string
+  max_results?: number
+  /** Pin one gateway search provider; omitted lets the gateway route. */
+  provider?: string
+}
+
+/** One result row of `POST {baseURL}/search`. */
+export interface WireSearchResult {
+  title?: string
+  url?: string
+  snippet?: string
+  published_at?: string
+}
+
+/** Response body of `POST {baseURL}/search`. */
+export interface WireSearchResponse {
+  provider?: string
+  query?: string
+  results?: WireSearchResult[]
+  answer?: { text?: string } | null
+  errors?: unknown
+}
+
+/** Request body of `POST {baseURL}/web/fetch`. */
+export interface WireFetchRequest {
+  url: string
+  /** Extraction format; `markdown` is the plugin default. */
+  format?: 'markdown' | 'html' | 'links' | 'screenshot'
+  /** Pin one gateway fetch provider; omitted lets the gateway route. */
+  provider?: string
+  /** Crawl depth for providers that support one. */
+  depth?: number
+  /** Include provider metadata in the response. */
+  include_metadata?: boolean
+}
+
+/** Response body of `POST {baseURL}/web/fetch`. */
+export interface WireFetchResponse {
+  provider?: string
+  url?: string
+  content?: string
+  links?: unknown
+  metadata?: Record<string, unknown> | null
+  screenshot_url?: string
 }
 
 /** Root of `https://models.dev/api.json`: one entry per provider id. */
@@ -226,4 +332,17 @@ export interface ModelsDevParamsRequest {
 export interface ModelsDevParamsResponse {
   /** Per requested id: every provider entry that matched it, in catalog order. */
   models: Array<{ id: string; matches: ModelsDevMatch[] }>
+}
+
+/**
+ * Request payload of the `catalog` RPC endpoint: the settings form's draft
+ * gateway endpoint and one-shot credential. Both are optional — an absent field
+ * falls back to the running connection snapshot, so the page can refresh a
+ * saved configuration without re-typing the key.
+ */
+export interface CatalogRequest {
+  /** Draft gateway base, when the form holds one that is not saved yet. */
+  baseURL?: string
+  /** Draft credential for this interrogation alone; the harness never stores it. */
+  apiKey?: string
 }

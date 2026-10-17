@@ -10,7 +10,7 @@ describe('tool-call deltas with explicit JSON null id/name', () => {
   // code guarded against EMPTY strings with `value.length > 0` but only
   // checked `!== undefined`, so `null` slipped through and the `.length`
   // read crashed the stream — caught by `adapter.stream()` and surfaced as
-  // TRANSPORT "NewAPI stream from ... failed". The stream cut happened
+  // TRANSPORT "OmniRoute stream from ... failed". The stream cut happened
   // exactly when a tool call began.
   it('keeps the real id/name from the first delta when later deltas carry null', async () => {
     const wire = (json: object) => payload({ choices: [{ delta: json }] })

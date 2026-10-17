@@ -1,9 +1,52 @@
 /**
- * models.dev parameter-lookup shapes for the browser half. Structurally the
- * same as the host's `types.ts` entries (the RPC payload crosses the wire as
- * plain JSON), mirrored here because the client program compiles with
- * `rootDir: src/client` and cannot import across the directory boundary.
+ * Host RPC payload shapes for the browser half. Structurally the same as the
+ * host's own types (the payload crosses the wire as plain JSON), mirrored here
+ * because the client program compiles with `rootDir: src/client` and cannot
+ * import across the directory boundary.
  */
+
+/** Supported input kinds the harness declares; this plugin's wire is text-only today. */
+export type ModelModality = 'text' | 'image'
+
+/**
+ * One catalog row: what the settings page adopts into `models[]` and what the
+ * adapter serves. Mirrors the host's `OmniRouteCatalogModel`.
+ */
+export interface CatalogModel {
+  /** Model id the harness selects. For an effort-suffixed route this is the native id, and `effortModels` maps back to the ids the gateway routes. */
+  id: string
+  /** Selector label. */
+  name?: string
+  /** Optional selector detail. */
+  description?: string
+  /** Combined request/response capacity. */
+  contextWindow?: number
+  /** Per-request output cap. */
+  maxTokens?: number
+  /** The gateway reports the route accepts images (this wire route is text-only). */
+  vision?: boolean
+  /** The gateway reports the route accepts tool declarations. */
+  toolCalling?: boolean
+  /** Supported thinking levels; presence offers the level selector. */
+  reasoningEfforts?: string[]
+  /** Preset default level; must be one of `reasoningEfforts`. */
+  defaultReasoningEffort?: string
+  /** Level → gateway model id, for routes that encode the level in the id. */
+  effortModels?: Record<string, string>
+}
+
+/** Request payload of the `catalog` RPC endpoint. */
+export interface CatalogRequest {
+  /** Draft gateway base, when the form holds one that is not saved yet. */
+  baseURL?: string
+  /** Draft credential for this interrogation alone. */
+  apiKey?: string
+}
+
+/** Response payload of the `catalog` RPC endpoint. */
+export interface CatalogResponse {
+  models: CatalogModel[]
+}
 
 /** One models.dev provider match for a gateway model id. */
 export interface ModelsDevMatch {

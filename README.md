@@ -1,81 +1,50 @@
-> 🚧 **Archived Notice / 归档通知**
->
-> **English:**  
-> This repository is no longer maintained and is now archived (read-only).  
-> The author's setup has moved from NewAPI to OmniRoute. The plugin capabilities the two gateways need have diverged: implementing OmniRoute's needs in this project would risk conflicting with the NewAPI-facing behaviour, and would add maintenance cost — so this project stops at its last release.  
-> The last published version is `0.2.0-rc.2-v0.1` (dsh `0.2.0-rc.2`). It keeps working against that pinned host, but there will be no further fixes, releases or new-host support.
->
-> **中文：**  
-> 本仓库已停止维护并已归档（只读）。  
-> 作者的使用场景已从 NewAPI 迁移到 OmniRoute。两边需要的插件能力有差异：在本项目里实现 OmniRoute 的需求，既担心与面向 NewAPI 的行为冲突，也有额外的维护成本，因此本项目停在最后一个发布版本。  
-> 最后一个发布版本是 `0.2.0-rc.2-v0.1`（对应 dsh `0.2.0-rc.2`）：锁住该宿主仍可继续使用，但不再有修复、新版本，也不再跟进新的 dsh 宿主。
-
-# dsh-llm-newapi
+# dsh-omniroute
 
 **English** | [中文](README.zh-CN.md)
 
-Use your NewAPI gateway in [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). The plugin adds a **NewAPI settings page** for credentials, model discovery and model parameters, plus streaming text and tool calls. It requires no changes to dsh.
+Use your [OmniRoute](https://github.com/diegosouzapw/OmniRoute) gateway in
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh).
 
-## Choose a compatible version
+The plugin registers the gateway as the **`omniroute`** provider route — shown as
+**Custom Provider** in dsh Web — and adapts what the gateway actually exposes:
 
-**Install the host and plugin as a pair.** Status checked on October 4, 2026.
+- **Chat completions** over `/v1/chat/completions`, streamed back as text,
+  reasoning and tool calls.
+- **A model list mapped from `/v1/models`**: context window, output cap, vision
+  and tool-calling capability, and the model's thinking levels — no second
+  catalog needed.
+- **Thinking levels that respect the gateway's naming**: a `no-think/…` route
+  offers `None` only; a route whose id carries the level (`…-high`, `…-low`)
+  folds back to the native id and sends the id matching the selected level;
+  only an id that encodes no level uses the advertised `effort_tiers`.
+- **`web_search` / `web_fetch` backed by the gateway's own retrieval stack**
+  (`POST /v1/search`, `POST /v1/web/fetch`) instead of the shipped
+  `deepseek-official` search provider, which needs a DeepSeek credential.
 
-| dsh host | Plugin version line | Install from | Status |
-| --- | --- | --- | --- |
-| `0.1.5-rc.3` | `0.1.5-rc.3-v0.3` | tag `v0.1.5-rc.3-v0.3` | Published, that line is frozen |
-| `0.1.7-rc.1` | `0.1.7-rc.1-v0.x` | tag `v0.1.7-rc.1-v0.3` | Published, cannot run on a 0.2.0 host |
-| **`0.2.0-rc.2`** | **`0.2.0-rc.2-v0.x`** | **tag `v0.2.0-rc.2-v0.1`** | **Current promoted line** |
+No dsh modification is required. The API key lives in the dsh credentials store
+under the fixed reference `omniroute`; it is configured on the settings page and
+never echoed back.
 
-The plugin is **no longer distributed through npm**: install it from this repository's Git tag (or the matching GitHub Release), as shown under [Install from Git](#install-from-git). On a host line only the last segment increments (`-v0.1` → `-v0.2` → …), so the current line is named `v0.x`; the tag list on [GitHub Releases](https://github.com/wenzetan/dsh-llm-newapi/releases) is the authoritative index of what exists.
+## Install
 
-### Version scheme
-
-The plugin version follows the upstream host: `<dsh version>-v<plugin revision>`. Only the last segment is this plugin's own revision:
-
-| Case | dsh version | Plugin version | Git tag / Release |
-| --- | --- | --- | --- |
-| Upstream RC | `0.2.0-rc.2` | `0.2.0-rc.2-v0.1` | `v0.2.0-rc.2-v0.1` |
-| Later plugin change on the same host line | `0.2.0-rc.2` | `0.2.0-rc.2-v0.2` | `v0.2.0-rc.2-v0.2` |
-| Upstream stable | `0.2.0` | `0.2.0-v0.1` | `v0.2.0-v0.1` |
-| Host line changes (revision restarts) | `0.2.0-rc.3` | `0.2.0-rc.3-v0.1` | `v0.2.0-rc.3-v0.1` |
-
-- The Git tag and GitHub Release carry a `v` prefix (`v0.2.0-rc.2-v0.1`); `package.json` stays `0.2.0-rc.2-v0.1`.
-- **Distribution**: the plugin ships as repository tags only — there is no npm channel, so the tag you install *is* the exact version and no `dist-tags` lookup is involved. A future stable tag (`v0.2.0-v0.x`) would be an ordinary GitHub Release.
-- The older **`0.8.x` series** (dsh `0.1.1-rc.2` / `0.1.2-rc.1` host lines) had its tags removed from this repository and is no longer supported.
-
-### Compatibility and upgrades
-
-Plugin `0.2.0-rc.2-v0.x` supports the **dsh `0.2.0-rc.2` line** and rejects `0.1.7` and older hosts with an explicit upgrade message; `0.1.7-rc.1` users run `0.1.7-rc.1-v0.x`. Compatibility is keyed to the host line rather than one patch: a later `0.2.0-rc` cut is covered as long as its export surface matches — `npm run test:host` compares the installed surface against the checked-in one and fails loudly when it does not, instead of assuming. See the [compatibility assessment (Chinese)](docs/2026-10-04-dsh-0.2.0-rc.2-assessment.md).
-
-Both lines are GitHub Pre-releases (the plugin has no stable release yet). The host comes from npm while the plugin comes from this repository's tag, so do not assume their versions pair — pick a host line from the table and install the matching tag next to it.
-
-## Install from Git
-
-You need Node.js, npm and pnpm. Repository CI uses Node.js 24. Install the host with npm, then install the plugin into dsh's `web` profile straight from this repository's tag.
-
-### Current promoted pair (dsh `0.2.0-rc.2`, tag `v0.2.0-rc.2-v0.1`)
+You need Node.js and pnpm. Install the host with npm, then install this plugin
+into the dsh profile that runs your Web UI (usually `web`):
 
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.0-rc.2
 npm install -g pnpm
-dsh plugin --profile web add "github:wenzetan/dsh-llm-newapi#v0.2.0-rc.2-v0.1"
+
+# from a checkout (what this repository is used for locally)
+dsh plugin --profile web add file:/path/to/dsh-omniroute
+
+# or straight from the repository tag
+dsh plugin --profile web add "github:<owner>/dsh-omniroute#v0.2.0-rc.2-v0.1"
 ```
 
-### Previous host pair (dsh `0.1.7-rc.1`)
-
-```sh
-npm install -g @deepseek-ai/dsh@0.1.7-rc.1
-npm install -g pnpm
-dsh plugin --profile web add "github:wenzetan/dsh-llm-newapi#v0.1.7-rc.1-v0.3"
-```
-
-Choose one pair. A `github:` spec pins the tag, so the installed version cannot drift and no registry lookup is involved. You can also download the `.tgz` from the matching [Release](https://github.com/wenzetan/dsh-llm-newapi/releases) and pass its absolute path to `dsh plugin --profile web add`. Use `dsh plugin` to manage the profile; installing the plugin globally by itself does not register it there.
-
-### Check that the plugin is enabled
-
-Open `$DSH_HOME/profiles/web/package.json`. With no `DSH_HOME` override, this is `.dsh/profiles/web/package.json` under your home directory.
-
-Ensure `dsh.profile.bundles` contains `dsh-llm-newapi`. Recent dsh hosts register installed bundle plugins automatically. On an older host or an existing profile where the entry is missing, append it once and preserve the other entries. This is a JSON fragment to check, **not a replacement for the entire file**:
+`dsh plugin add` writes the profile dependency, appends `dsh-omniroute` to
+`dsh.profile.bundles`, and installs the package into the profile. If the bundle
+entry is missing on an older host, append it beside the existing entries — this
+is a JSON fragment to check, **not** a replacement for the whole file:
 
 ```json
 {
@@ -84,66 +53,95 @@ Ensure `dsh.profile.bundles` contains `dsh-llm-newapi`. Recent dsh hosts registe
       "bundles": [
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
-        "dsh-llm-newapi"
+        "dsh-omniroute"
       ]
     }
   }
 }
 ```
 
-Check the installed versions, then restart dsh Web:
-
-```sh
-dsh --version
-dsh plugin --profile web list dsh-llm-newapi
-dsh web
-```
+The bundle patch (`cordis.patch.yml`) mounts the plugin row and pins the web
+seam at this gateway; both entries are safe in a composition that does not have
+the targeted row. Restart dsh Web after installing.
 
 ## First use
 
-1. Open **NewAPI** in dsh Web settings.
-2. Enter your gateway URL, such as `https://your-gateway.example/v1`, and API key. Include `/v1`; do not enter the full `/chat/completions` path.
-3. Click **Fetch models**, select the models you need and add the selected entries.
-4. Optionally fetch model information from models.dev. Review context limits, output limits and reasoning efforts before applying values.
-5. Click **Save**, then choose a model under the `newapi` provider in the conversation model picker.
+1. Open **Custom Provider** in the dsh Web settings.
+2. Enter the gateway base URL **including `/v1`** (for a local OmniRoute:
+   `http://127.0.0.1:20128/v1`) and the API key.
+3. Click **Fetch models**. The plugin asks the gateway's `/v1/models` and shows
+   what each entry declares: capacities, capability flags and thinking levels.
+   Entries that cannot serve chat (embedding, rerank) are filtered out.
+4. Select the models you want and add them. Each adopted row keeps the
+   gateway's own facts, including the level → model-id map for id-bound routes.
+5. Click **Save**, then pick a model under the `omniroute` provider in the
+   conversation model picker.
 
-Model discovery queries your gateway for available models. models.dev is a public parameter catalog; a match does not establish that your gateway supports a model or feature. Save after applying catalog values.
+`web_search` / `web_fetch` need no extra step: the pinned `omniroute` web
+providers send to the same gateway base with the same key. Use the
+`web.searchProvider` / `web.fetchProvider` ids only if you want to pin one
+gateway-side search or fetch provider.
+
+## Thinking levels
+
+The gateway is an aggregation layer, and its `capabilities.effort_tiers` field
+comes from a whole-provider sync rather than a per-model probe — it can list
+levels a specific route rejects. The model id is the stronger evidence, so it
+wins:
+
+| Advertised id | What the plugin exposes | What a request sends |
+| --- | --- | --- |
+| `no-think/<provider>/<model>` | The id itself, levels = `None` only | The same id; `reasoning_effort: none` |
+| `<provider>/<model>-<level>` (one level) | The native id `<provider>/<model>`, that level preselected | The advertised id for that level |
+| `<provider>/<model>-<level>` (several levels) | **One** row per native id, every advertised level | The advertised id matching the selected level |
+| Any id that encodes no level | The id itself, levels from `effort_tiers` | The id itself + `reasoning_effort` |
+
+Folding is always paired with the reverse map (`effortModels` in the row), and
+the plugin only ever sends ids the gateway advertised — it never sends a native
+id that the listing does not carry. A route whose *name* merely ends in an
+effort word (`qwen-max`) folds too; the row's level map sends the advertised id
+back, and the row can be edited by hand if you disagree.
 
 ## Capabilities and limits
 
 | Feature | Behavior |
 | --- | --- |
-| Text, reasoning content and tool calls | Streaming supported; an explicit reasoning effort is sent as `reasoning_effort` |
-| Image input | The adapter currently declares text-only input |
-| Model discovery | Queries `/models` and filters names containing `embed`, `rerank` or `ranker`; this is not a capability probe |
-| Model parameters | Edit manually or match against models.dev; verify against your gateway |
-| API key | Saved through settings, never echoed; a blank input preserves the stored key |
-| Multiple gateways | One `newapi` route and one gateway configuration are currently supported |
+| Text, reasoning content, tool calls | Streaming; the selected level is sent as `reasoning_effort` or folded into the model id |
+| Model discovery | `GET /v1/models`; non-chat entries are dropped by capability fact (`type`, `supported_endpoints`) and by the configurable id-name filter |
+| Capacities | `context_length`/`max_input_tokens` → context window, `max_output_tokens`/`max_tokens` → output cap |
+| Image input | The gateway's `vision` flag is kept and shown, but this route declares text-only input: the serializer cannot send images yet, and declaring otherwise would let the host accept requests that must fail |
+| Tool calling | The gateway's `tool_calling` flag is kept and shown; the harness has no per-model declaration for it |
+| models.dev | Optional fallback for rows the gateway leaves thin; it never overwrites levels that the model id already fixes |
+| API key | Saved through settings, never echoed; blank input keeps the stored key |
+| Multiple gateways | One `omniroute` route and one gateway configuration |
 
-## Upgrading and troubleshooting
-
-Check the version table, stop dsh Web and back up your dsh configuration and session data before upgrading. Install the target host and exact plugin version, keep the existing bundle entry and restart. The plugin retains the `newapi` credential reference; configuration now persists through the profile's Cordis patch (see [configuration](docs/configuration.md)).
-
-Host `0.1.7` migrates sessions from V3 to V4 (tool results become tool-role messages, message sources are renamed); older hosts cannot directly read migrated sessions. Installing an older plugin tag alone is not a complete rollback. See the [upstream migration guide](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.1.7-rc.1/packages/session/session-format-v3-to-v4/README.md).
+## Troubleshooting
 
 | Symptom | Check first |
 | --- | --- |
-| No NewAPI settings page | The `web` profile, bundle entry, host compatibility and whether Web was restarted |
-| Missing credential | Enter and save the key in NewAPI settings; the plugin does not read `NEWAPI_API_KEY` |
-| Discovery fails | The `/v1` base URL, API key and gateway support for `/models` |
-| Empty model list | Name-based filtering; manually add a model only if it supports chat-completions |
-| models.dev download fails | Network and proxy settings; the plugin proxy applies to this download, while dsh also applies environment proxy settings through `dsh-http-proxy` |
-| Missing-peer warnings during install | dsh supplies host packages. If installation and startup succeed, do not install duplicate host packages just to silence these warnings; investigate actual startup errors separately |
+| No **Custom Provider** settings page | The `web` profile, the bundle entry, the host version, and whether Web was restarted |
+| Missing credential | Enter and save the key on the settings page; the plugin reads no `OMNIROUTE_API_KEY` environment variable |
+| Model discovery fails | The `/v1` base URL, the key, and gateway support for `/v1/models` |
+| Empty model list | The id-name filter (`modelExcludePatterns`) and whether the entries declare a non-chat `type` |
+| A request fails with `Model '…' is not available in the active live catalog` | The row's id may be hand-edited to a native id the gateway does not route; re-fetch the models or pick the row's mapped level |
+| `WEB_PROVIDER_AMBIGUOUS` on `web_search` | Pin `web.searchProvider: omniroute` (the bundle patch does) |
+| `WEB_DUPLICATE_PROVIDER: omniroute` at boot | Another installed plugin owns the same web provider id — `dsh-web-search-omniroute` is the known one; keep only one of them |
+| models.dev download fails | Network and proxy settings; the plugin proxy applies to that download only, and dsh may also apply its own environment proxy |
+| Missing-peer warnings during install | dsh supplies the host packages at runtime; if install and startup succeed, do not add duplicate host packages |
 
 ## Documentation
 
-The detailed guides below are currently in Chinese:
+The detailed guides are currently in Chinese:
 
-- [Configuration and troubleshooting](docs/configuration.md): fields, model matching, proxies and save failures.
-- [Development and RC releases](docs/development.md): builds, test coverage and release checks.
+- [Configuration and troubleshooting](docs/configuration.md): every field, the
+  thinking-level rules, the models.dev panel, proxies and save failures.
+- [Development and RC releases](docs/development.md): builds, tests, artifacts.
 - [Design](DESIGN.md): source map, data flow and implementation decisions.
-- [0.2.0-rc.2 assessment](docs/2026-10-04-dsh-0.2.0-rc.2-assessment.md): the current host line, its verification and its limits.
-- [0.1.7-rc.1 assessment](docs/2026-09-24-dsh-0.1.7-rc.1-assessment.md): historical snapshot.
-- [0.1.5-rc.1 assessment](docs/2026-09-10-dsh-0.1.5-rc.1-assessment.md): historical snapshot.
 
-See [GitHub Releases](https://github.com/wenzetan/dsh-llm-newapi/releases) for published changes and downloadable packages.
+## Version scheme
+
+The plugin version follows the host: `<dsh version>-v<plugin revision>`
+(`0.2.0-rc.2-v0.1`), and a Git tag carries a `v` prefix. It supports the dsh
+`0.2.0-rc.2` host line and rejects older hosts with an explicit upgrade message;
+compatibility is keyed to a host *line*, and `npm run test:host` compares the
+installed export surface against the checked-in snapshot instead of assuming.

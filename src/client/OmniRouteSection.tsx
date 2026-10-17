@@ -1,22 +1,25 @@
 /**
- * The NewAPI settings section: API key (write-only), gateway base URL, and
- * the model catalog with endpoint interrogation. Pure props — no ctx, no
+ * The Custom Provider settings section: API key (write-only), gateway base URL,
+ * and the model catalog with endpoint interrogation. Pure props — no ctx, no
  * contexts, no subscription machinery; everything arrives through the inject
  * face the apply closure owns (api wire face + bound translate). Styles come
- * from the fiber-scoped `newapi-*` stylesheet the apply closure injects; it
+ * from the fiber-scoped `omniroute-*` stylesheet the apply closure injects; it
  * rides the shell's `--dsw-alias-*` tokens, so light and dark themes both
  * render correctly.
  *
- * The model catalog mirrors the official Models page (`ModelListEditor`):
- * one bordered entry per model with id and display name on the row, the two
- * token capacities behind the row's own disclosure, K/M-suffixed capacity
- * entry, and per-field text buffers so a count is not rewritten mid-word.
+ * The model catalog mirrors the official Models page (`ModelListEditor`): one
+ * bordered entry per model with id and display name on the row, the token
+ * capacities and the thinking-level selector behind the row's own disclosure,
+ * K/M-suffixed capacity entry, and per-field text buffers so a count is not
+ * rewritten mid-word.
+ *
+ * A row adopted from the gateway carries capability facts: capacities, image
+ * and tool support, the thinking levels, and — when the gateway encodes a level
+ * in the model id — the level → model-id map the host sends with instead.
  */
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  LlmDiscoveredModel,
-  LlmModelDiscoveryRequest,
   RemoteResult,
   SettingsDescribeValue,
   SettingsNamespaceView,
@@ -24,7 +27,13 @@ import type {
   CredentialInfo,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ModelsDevParamsRequest, ModelsDevParamsResponse } from './params-types.ts'
+import type {
+  CatalogModel,
+  CatalogRequest,
+  CatalogResponse,
+  ModelsDevParamsRequest,
+  ModelsDevParamsResponse,
+} from './params-types.ts'
 
 /**
  * One catalog entry, structurally open like the official editors: a field
@@ -123,8 +132,8 @@ function IconTrash(): ReactNode {
   )
 }
 
-/** The settings/credentials/llm wire face the apply closure builds over the typert Remote namespaces. */
-export interface NewApiWire {
+/** The settings/credentials wire face the apply closure builds over the typert Remote namespaces. */
+export interface OmniRouteWire {
   /** Whole-document settings describe (redacted): writability + one view per registered namespace. */
   describeSettings(): Promise<RemoteResult<SettingsDescribeValue>>
   /** Path-op write to one namespace, fenced by the revision the draft read. */
@@ -137,31 +146,35 @@ export interface NewApiWire {
   describeCredentials(refs: string[]): Promise<RemoteResult<Record<string, CredentialInfo>>>
   /** Store one credential literal under its reference. */
   setCredential(ref: string, value: string): Promise<RemoteResult<void>>
-  /** Ask this namespace's adapter family what models one endpoint serves. */
-  discoverModels(
-    settingsNs: string,
-    request: LlmModelDiscoveryRequest,
-  ): Promise<RemoteResult<LlmDiscoveredModel[]>>
 }
 
-/** Registration-side inject face: the wire face, the bound translate, and the models.dev params call. */
-export interface NewApiSectionInjected {
-  api: NewApiWire
+/** Registration-side inject face: the wire face, the bound translate, and the plugin's host RPC calls. */
+export interface OmniRouteSectionInjected {
+  api: OmniRouteWire
   /** Host-side models.dev catalog lookup (browser sends ids + proxy only). */
   fetchModelParams: (
     request: ModelsDevParamsRequest,
   ) => Promise<{ ok: true; value: ModelsDevParamsResponse } | { ok: false; error: { message: string } }>
+  /**
+   * Host-side gateway `/v1/models` interrogation, parsed into adoptable rows.
+   * Rides the plugin's own channel rather than `remote.llm.discoverModels`
+   * because the rows carry capability facts the harness's discovery shape has
+   * no field for (thinking levels, the level → model-id map, vision, tools).
+   */
+  fetchCatalog: (
+    request: CatalogRequest,
+  ) => Promise<{ ok: true; value: CatalogResponse } | { ok: false; error: { message: string } }>
 }
 
 /** Full component props assembled by the settings slot renderer (locale seat + inject face). */
-export type NewApiSectionProps =
+export type OmniRouteSectionProps =
   PropsRuntime<'settings.section'>
-  & PropsLocale<'settings.newapi'>
-  & InjectFace<NewApiSectionInjected>
+  & PropsLocale<'settings.omniroute'>
+  & InjectFace<OmniRouteSectionInjected>
 
-const NS = 'llm-newapi'
+const NS = 'llm-omniroute'
 /** Credential reference the host half resolves per request (see apply.ts). */
-const KEY_REF = 'newapi'
+const KEY_REF = 'omniroute'
 
 /** The proxy text box's default and placeholder (mirrors the host default). */
 const DEFAULT_PROXY_URL = 'http://127.0.0.1:7890'
@@ -188,18 +201,54 @@ function highestOf(efforts: readonly unknown[]): string {
   return [...ids].sort((a, b) => (EFFORT_RUNG[b] ?? -1) - (EFFORT_RUNG[a] ?? -1))[0] ?? ''
 }
 
+/** A row's effort → model-id map, when it has one. */
+function effortModelsOf(model: ModelDraft): Record<string, string> {
+  const value = model.effortModels
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  )
+}
+
+/**
+ * Whether a row's thinking levels come from its model id rather than from an
+ * advertised tier list — either because the gateway routes a distinct id per
+ * level, or because the id is a no-thinking route pinned to `none`. Such a row
+ * is the one case where a models.dev tier list must not overwrite the levels.
+ * @param model - one catalog row.
+ * @returns true when the level set is id-bound.
+ */
+function isIdBoundRow(model: ModelDraft): boolean {
+  if (Object.keys(effortModelsOf(model)).length > 0) return true
+  const efforts = Array.isArray(model.reasoningEfforts) ? model.reasoningEfforts : []
+  return efforts.length === 1 && efforts[0] === 'none'
+}
+
+/** The label one level shows in the selector; `none` reads as a word, not a token. */
+function effortLabel(effort: string, noneLabel: string): string {
+  return effort === 'none' ? noneLabel : effort
+}
+
+/** One row's capability summary, e.g. `图片输入 · 工具调用`. */
+function capabilitySummary(model: ModelDraft, labels: { vision: string; tools: string; none: string }): string {
+  const parts: string[] = []
+  if (model.vision === true) parts.push(labels.vision)
+  if (model.toolCalling === true) parts.push(labels.tools)
+  return parts.length > 0 ? parts.join(' · ') : labels.none
+}
+
 /** Buffer key for one capacity field; the row half moves when rows do. */
 function bufferKey(index: number, field: CapacityField): string {
   return `${String(index)}:${field}`
 }
 
 /**
- * Render the NewAPI settings section.
+ * Render the OmniRoute settings section.
  * @param props - the wire face and the bound translate.
  * @returns the section.
  */
-export function NewApiSection(props: NewApiSectionProps): ReactNode {
-  const { api, t, fetchModelParams } = props
+export function OmniRouteSection(props: OmniRouteSectionProps): ReactNode {
+  const { api, t, fetchModelParams, fetchCatalog } = props
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [errorText, setErrorText] = useState<string | undefined>(undefined)
   const [revision, setRevision] = useState<number>(0)
@@ -220,7 +269,7 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
   const [editing, setEditing] = useState<ReadonlyMap<string, string>>(new Map())
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | undefined>(undefined)
-  const [candidates, setCandidates] = useState<readonly LlmDiscoveredModel[] | undefined>(undefined)
+  const [candidates, setCandidates] = useState<readonly CatalogModel[] | undefined>(undefined)
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   /** Proxy draft for the models.dev download; persisted with the section. */
   const [proxyEnabled, setProxyEnabled] = useState(false)
@@ -238,6 +287,13 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
     // call keeps non-browser test environments safe.
     paramsRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
   }, [params])
+  /** The fetched-model panel, scrolled into view when a fetch lands. */
+  const candidatesRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // Same reason as the models.dev panel: the picker renders below every
+    // configured row, so without this the fetch would look like a no-op.
+    candidatesRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+  }, [candidates])
 
   const load = async (): Promise<void> => {
     setStatus('loading')
@@ -343,13 +399,21 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
             && efforts.includes(model.defaultReasoningEffort)
             ? model.defaultReasoningEffort
             : undefined
+          // Only levels the row declares survive the write: the host's schema
+          // refuses a map entry that could never be selected.
+          const effortModels = Object.fromEntries(
+            Object.entries(effortModelsOf(model)).filter(([effort]) => efforts.includes(effort)),
+          )
           return {
             id,
             ...name.length > 0 ? { name } : {},
             ...contextWindow !== undefined ? { contextWindow } : {},
             ...maxTokens !== undefined ? { maxTokens } : {},
+            ...model.vision === true ? { vision: true } : {},
+            ...typeof model.toolCalling === 'boolean' ? { toolCalling: model.toolCalling } : {},
             ...efforts.length > 0 ? { reasoningEfforts: efforts } : {},
             ...preset !== undefined ? { defaultReasoningEffort: preset } : {},
+            ...Object.keys(effortModels).length > 0 ? { effortModels } : {},
           }
         }),
       })
@@ -382,18 +446,22 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
     setCandidates(undefined)
     try {
       const key = keyDraft.trim()
-      const response = await api.discoverModels(NS, {
-        provider: 'newapi',
+      // The plugin's own host channel, not `remote.llm.discoverModels`: the
+      // rows must carry the capability facts an adoption persists (thinking
+      // levels, the level → model-id map, vision, tools) that the harness's
+      // discovery shape has no field for. The host does the network work, so
+      // no cross-origin request happens here.
+      const response = await fetchCatalog({
         ...baseURL.trim().length > 0 ? { baseURL: baseURL.trim() } : {},
         ...key.length > 0 ? { apiKey: key } : {},
       })
       if (!response.ok) {
-        setErrorText(response.error.message)
+        setErrorText(`${t('fetchFailed')}: ${response.error.message}`)
         return
       }
-      const found = response.value
       // Sorted by id regardless of what the host answered, so the picker and
       // the rows it produces read the same way on every fetch.
+      const found = [...response.value.models]
       found.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
       if (found.length === 0) {
         setErrorText(t('fetchEmpty'))
@@ -423,6 +491,15 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
         ...candidate.name === undefined ? {} : { name: candidate.name },
         ...candidate.contextWindow === undefined ? {} : { contextWindow: candidate.contextWindow },
         ...candidate.maxTokens === undefined ? {} : { maxTokens: candidate.maxTokens },
+        ...candidate.vision === true ? { vision: true } : {},
+        ...typeof candidate.toolCalling === 'boolean' ? { toolCalling: candidate.toolCalling } : {},
+        ...candidate.reasoningEfforts === undefined || candidate.reasoningEfforts.length === 0
+          ? {}
+          : { reasoningEfforts: [...candidate.reasoningEfforts] },
+        ...candidate.defaultReasoningEffort === undefined
+          ? {}
+          : { defaultReasoningEffort: candidate.defaultReasoningEffort },
+        ...candidate.effortModels === undefined ? {} : { effortModels: { ...candidate.effortModels } },
       })
     }
     // The form keeps id order after an adoption: new and old rows merge
@@ -530,9 +607,16 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
       const currentContext = numberOf(model, 'contextWindow')
       const currentMax = numberOf(model, 'maxTokens')
       const hasEfforts = Array.isArray(model.reasoningEfforts)
+      // A models.dev tier list is a whole-family guess. When the gateway
+      // encoded this row's levels in the model id (`-high` variants) or pinned
+      // it to none (a `no-think/...` route), that evidence is stronger and the
+      // panel must not overwrite it — the row would start offering levels the
+      // gateway rejects.
+      const idBound = isIdBoundRow(model)
       const takeContext = nextContext !== undefined && (overwrite || currentContext === undefined)
       const takeMax = nextMax !== undefined && (overwrite || currentMax === undefined)
-      const takeEfforts = nextEfforts !== undefined && nextEfforts.length > 0 && (overwrite || !hasEfforts)
+      const takeEfforts = !idBound && nextEfforts !== undefined && nextEfforts.length > 0
+        && (overwrite || !hasEfforts)
       if (!takeContext && !takeMax && !takeEfforts) return model
       touched += 1
       return {
@@ -540,6 +624,8 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
         ...takeContext && nextContext !== undefined ? { contextWindow: nextContext } : {},
         ...takeMax && nextMax !== undefined ? { maxTokens: nextMax } : {},
         ...takeEfforts && nextEfforts !== undefined ? { reasoningEfforts: nextEfforts } : {},
+        // A replaced tier list invalidates a preset that named the old one.
+        ...takeEfforts ? { defaultReasoningEffort: highestOf(nextEfforts ?? []) } : {},
       }
     })
     setModels(next)
@@ -606,30 +692,30 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
     setEditing(current => reindexOnRemove(current, index))
   }
 
-  if (status === 'loading') return <section aria-label={t('nav')}><p>…</p></section>
+  if (status === 'loading') return <section className="omniroute-section" aria-label={t('nav')}><p className="omniroute-hint">…</p></section>
   if (status === 'error') {
     return (
-      <section aria-label={t('nav')}>
-        <p className="newapi-error">{`${t('loadFailed')}: ${errorText ?? ''}`}</p>
-        <button type="button" className="newapi-button" onClick={() => { void load() }}>{t('retry')}</button>
+      <section className="omniroute-section" aria-label={t('nav')}>
+        <p className="omniroute-error">{`${t('loadFailed')}: ${errorText ?? ''}`}</p>
+        <button type="button" className="omniroute-button omniroute-submit" onClick={() => { void load() }}>{t('retry')}</button>
       </section>
     )
   }
 
   return (
-    <section aria-label={t('nav')}>
-      <p>{t('intro')}</p>
-      {notice === undefined ? null : <p role="status">{notice}</p>}
-      {!writable ? <p>{t('readOnly')}</p> : null}
-      {errorText === undefined ? null : <p className="newapi-error">{errorText}</p>}
+    <section className="omniroute-section" aria-label={t('nav')}>
+      <p className="omniroute-intro">{t('intro')}</p>
+      {notice === undefined ? null : <p className="omniroute-notice" role="status">{notice}</p>}
+      {!writable ? <p className="omniroute-notice">{t('readOnly')}</p> : null}
+      {errorText === undefined ? null : <p className="omniroute-error">{errorText}</p>}
 
-      <div className="newapi-field">
-        <label htmlFor="newapi-key">{t('keyInput')}</label>
+      <div className="omniroute-field">
+        <label htmlFor="omniroute-key">{t('keyInput')}</label>
         {/* The official ProviderEditor credential pattern: a read-only
             credential (launch environment) locks the input and the
             placeholder states the fact; no separate hint paragraph. */}
         <input
-          id="newapi-key" type="password" autoComplete="off" className="newapi-input"
+          id="omniroute-key" type="password" autoComplete="off" className="omniroute-input"
           disabled={keyLocked}
           placeholder={keyLocked
             ? t('keyEnvLocked')
@@ -639,29 +725,29 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
         />
       </div>
 
-      <div className="newapi-field">
-        <label htmlFor="newapi-base">{t('baseUrl')}</label>
+      <div className="omniroute-field">
+        <label htmlFor="omniroute-base">{t('baseUrl')}</label>
         <input
-          id="newapi-base" type="text" className="newapi-input" placeholder={t('baseUrlPlaceholder')}
+          id="omniroute-base" type="text" className="omniroute-input" placeholder={t('baseUrlPlaceholder')}
           value={baseURL}
           onChange={(event) => { setBaseURL(event.target.value) }}
         />
       </div>
 
-      <section className="newapi-catalog" aria-label={t('models')}>
-        <div className="newapi-catalog-head">
-          <span className="newapi-catalog-title">{t('models')}</span>
-          <div className="newapi-catalog-actions" style={{ display: 'flex', gap: 4 }}>
-            <button type="button" className="newapi-linkbutton" disabled={busy} onClick={() => { void fetchModels() }}>
+      <section className="omniroute-catalog" aria-label={t('models')}>
+        <div className="omniroute-catalog-head">
+          <span className="omniroute-catalog-title">{t('models')}</span>
+          <div className="omniroute-catalog-actions">
+            <button type="button" className="omniroute-linkbutton" disabled={busy} onClick={() => { void fetchModels() }}>
               {busy ? t('fetching') : t('fetchModels')}
             </button>
-            <button type="button" className="newapi-linkbutton" disabled={paramsBusy} onClick={() => { void updateParams() }}>
+            <button type="button" className="omniroute-linkbutton" disabled={paramsBusy} onClick={() => { void updateParams() }}>
               {paramsBusy ? t('paramsFetching') : t('updateParams')}
             </button>
             {/* Same state semantics as the per-row delete glyph, applied to
                 every row at once: the merged position-keyed stores reset too,
                 so no stale disclosure or buffer survives into new rows. */}
-            <button type="button" className="newapi-linkbutton" disabled={busy || models.length === 0} onClick={() => {
+            <button type="button" className="omniroute-linkbutton" disabled={busy || models.length === 0} onClick={() => {
               setModels([])
               setExpanded(new Set())
               setEditing(new Map())
@@ -672,7 +758,7 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
             </button>
           </div>
         </div>
-        <div className="newapi-proxyrow">
+        <div className="omniroute-proxyrow">
           <label>
             <input
               type="checkbox" checked={proxyEnabled}
@@ -684,7 +770,7 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
           {proxyEnabled
             ? (
               <input
-                className="newapi-input" type="text" style={{ maxWidth: 220 }}
+                className="omniroute-input" type="text"
                 aria-label={t('proxyUrl')} placeholder={DEFAULT_PROXY_URL}
                 value={proxyUrl}
                 onChange={(event) => { setProxyUrl(event.target.value) }}
@@ -692,23 +778,23 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
             )
             : null}
         </div>
-        <p className="newapi-hint">{t('proxyHint')}</p>
-        {models.length === 0 ? <p className="newapi-empty">{t('modelsEmpty')}</p> : null}
+        <p className="omniroute-hint">{t('proxyHint')}</p>
+        {models.length === 0 ? <p className="omniroute-empty">{t('modelsEmpty')}</p> : null}
         {models.map((model, index) => (
-          <div key={index} className="newapi-entry">
-            <div className="newapi-modelrow">
+          <div key={index} className="omniroute-entry">
+            <div className="omniroute-modelrow">
               <input
-                className="newapi-input" type="text" value={textOf(model, 'id')}
+                className="omniroute-input" type="text" value={textOf(model, 'id')}
                 placeholder={t('modelId')} aria-label={`${t('modelId')} ${String(index + 1)}`}
                 onChange={(event) => { patch(index, { id: event.target.value }) }}
               />
               <input
-                className="newapi-input" type="text" value={textOf(model, 'name')}
+                className="omniroute-input" type="text" value={textOf(model, 'name')}
                 placeholder={t('modelName')} aria-label={`${t('modelName')} ${String(index + 1)}`}
                 onChange={(event) => { patch(index, { name: event.target.value === '' ? undefined : event.target.value }) }}
               />
               <button
-                type="button" className="newapi-iconbutton"
+                type="button" className="omniroute-iconbutton"
                 aria-label={`${t('modelAdvanced')} ${String(index + 1)}`}
                 aria-expanded={expanded.has(index)}
                 title={t('modelAdvanced')}
@@ -717,7 +803,7 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
                 <IconChevron open={expanded.has(index)} />
               </button>
               <button
-                type="button" className="newapi-iconbutton newapi-iconbutton--danger"
+                type="button" className="omniroute-iconbutton omniroute-iconbutton--danger"
                 aria-label={`${t('removeModel')} ${String(index + 1)}`}
                 title={t('removeModel')}
                 onClick={() => { removeModel(index) }}
@@ -727,21 +813,21 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
             </div>
             {expanded.has(index)
               ? (
-                <div className="newapi-modeladvanced">
-                  <label className="newapi-modelfield">
-                    <span className="newapi-modelfield-label">{t('contextWindow')}</span>
+                <div className="omniroute-modeladvanced">
+                  <label className="omniroute-modelfield">
+                    <span className="omniroute-modelfield-label">{t('contextWindow')}</span>
                     <input
-                      className="newapi-input" type="text" inputMode="numeric"
+                      className="omniroute-input" type="text" inputMode="numeric"
                       value={capacityText(model, index, 'contextWindow')}
                       placeholder={CAPACITY_HINT.contextWindow}
                       aria-label={`${t('contextWindow')} ${String(index + 1)}`}
                       onChange={(event) => { editCapacity(index, 'contextWindow', event.target.value) }}
                     />
                   </label>
-                  <label className="newapi-modelfield">
-                    <span className="newapi-modelfield-label">{t('maxTokens')}</span>
+                  <label className="omniroute-modelfield">
+                    <span className="omniroute-modelfield-label">{t('maxTokens')}</span>
                     <input
-                      className="newapi-input" type="text" inputMode="numeric"
+                      className="omniroute-input" type="text" inputMode="numeric"
                       value={capacityText(model, index, 'maxTokens')}
                       placeholder={CAPACITY_HINT.maxTokens}
                       aria-label={`${t('maxTokens')} ${String(index + 1)}`}
@@ -750,11 +836,12 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
                   </label>
                   {Array.isArray(model.reasoningEfforts) && model.reasoningEfforts.length > 0
                     ? (
-                      <label className="newapi-modelfield">
-                        <span className="newapi-modelfield-label">{t('modelReasoning')}</span>
+                      <label className="omniroute-modelfield">
+                        <span className="omniroute-modelfield-label">{t('modelReasoning')}</span>
                         <select
-                          className="newapi-select"
+                          className="omniroute-select"
                           aria-label={`${t('defaultEffort')} ${String(index + 1)}`}
+                          title={t('defaultEffortHint')}
                           value={typeof model.defaultReasoningEffort === 'string'
                             && model.reasoningEfforts.includes(model.defaultReasoningEffort)
                             ? model.defaultReasoningEffort
@@ -764,7 +851,7 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
                           }}
                         >
                           {model.reasoningEfforts.map((effort) => (
-                            <option key={effort} value={effort}>{effort}</option>
+                            <option key={effort} value={effort}>{effortLabel(effort, t('effortNone'))}</option>
                           ))}
                         </select>
                       </label>
@@ -773,10 +860,40 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
                 </div>
               )
               : null}
+            {expanded.has(index)
+              ? (
+                <div className="omniroute-modelnotes">
+                  <p className="omniroute-hint">
+                    {`${capabilitySummary(model, {
+                      vision: t('capabilityVision'),
+                      tools: t('capabilityToolCalling'),
+                      none: t('capabilityNone'),
+                    })}`}
+                  </p>
+                  {Object.keys(effortModelsOf(model)).length > 0
+                    ? (
+                      <p className="omniroute-hint">
+                        {`${t('effortIdBound')} · ${t('effortIdBoundHint')}`}
+                        <br />
+                        {Object.entries(effortModelsOf(model))
+                          .map(([effort, wireModel]) => t('effortMapRow')
+                            .replace('{effort}', effortLabel(effort, t('effortNone')))
+                            .replace('{model}', wireModel))
+                          .join(' · ')}
+                      </p>
+                    )
+                    : isIdBoundRow(model)
+                      ? <p className="omniroute-hint">{t('effortIdBound')}</p>
+                      : Array.isArray(model.reasoningEfforts) && model.reasoningEfforts.length > 0
+                        ? <p className="omniroute-hint">{t('effortFromTiers')}</p>
+                        : null}
+                </div>
+              )
+              : null}
           </div>
         ))}
         <button
-          type="button" className="newapi-addmodel"
+          type="button" className="omniroute-addmodel"
           disabled={busy}
           onClick={() => { setModels(current => [...current, { id: '' }]) }}
         >
@@ -785,9 +902,9 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
       </section>
 
       {candidates === undefined ? null : (
-        <div className="newapi-candidates">
-          <div className="newapi-candidates-head">
-            <strong>{t('fetchTitle')}</strong>
+        <div className="omniroute-candidates" ref={candidatesRef}>
+          <div className="omniroute-candidates-head">
+            <strong className="omniroute-params-title">{t('fetchTitle')}</strong>
             <label>
               <input
                 ref={selectAllRef} type="checkbox" checked={allPicked}
@@ -808,34 +925,48 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
                   />
                   {' '}
                   {model.id}{model.name === undefined || model.name === model.id ? '' : ` (${model.name})`}
+                  {model.reasoningEfforts === undefined || model.reasoningEfforts.length === 0
+                    ? ''
+                    : ` · ${t('modelReasoning')}: ${model.reasoningEfforts.map(effort => effortLabel(effort, t('effortNone'))).join('/')}`}
+                  {model.contextWindow === undefined ? '' : ` · ${t('contextWindow')} ${formatCapacity(model.contextWindow)}`}
+                  {model.vision === true ? ` · ${t('capabilityVision')}` : ''}
+                  {model.toolCalling === false ? '' : model.toolCalling === true ? ` · ${t('capabilityToolCalling')}` : ''}
                 </label>
               </li>
             ))}
           </ul>
-          <button type="button" className="newapi-button newapi-button--primary" disabled={picked.size === 0} onClick={adopt}>
-            {t('fetchAdopt')}
-          </button>
-          {' '}
-          <button type="button" className="newapi-button" onClick={() => { setCandidates(undefined); setPicked(new Set()) }}>
-            {t('fetchCancel')}
-          </button>
+          <div className="omniroute-candidates-footer">
+            <button type="button" className="omniroute-button omniroute-button--primary" disabled={picked.size === 0} onClick={adopt}>
+              {t('fetchAdopt')}
+            </button>
+            <button type="button" className="omniroute-button" onClick={() => { setCandidates(undefined); setPicked(new Set()) }}>
+              {t('fetchCancel')}
+            </button>
+          </div>
         </div>
       )}
 
       {params === undefined ? null : (
-        <div className="newapi-params" ref={paramsRef}>
-          <strong>{t('paramsTitle')}</strong>
-          <p className="newapi-params-summary">{
+        <div className="omniroute-params" ref={paramsRef}>
+          <strong className="omniroute-params-title">{t('paramsTitle')}</strong>
+          <p className="omniroute-params-summary">{
             t('paramsSummary')
               .replace('{matched}', String(params.models.filter(entry => entry.matches.length > 0).length))
               .replace('{unmatched}', String(params.models.filter(entry => entry.matches.length === 0).length))
           }</p>
           {params.models.map(entry => {
+            // A row whose levels the gateway encoded in its model id keeps them:
+            // say so on the row, so a hit that "does nothing" reads as intent
+            // rather than a silent failure.
+            const row = models.find(model => textOf(model, 'id').trim() === entry.id)
+            const idBoundNote = row !== undefined && isIdBoundRow(row)
+              ? <span className="omniroute-params-unmatched">{t('paramsIdBoundSkipped')}</span>
+              : <span />
             if (entry.matches.length === 0) {
               return (
-                <div key={entry.id} className="newapi-params-row">
-                  <span className="newapi-params-id">{entry.id}</span>
-                  <span className="newapi-params-unmatched">{t('paramsUnmatched')}</span>
+                <div key={entry.id} className="omniroute-params-row">
+                  <span className="omniroute-params-id">{entry.id}</span>
+                  <span className="omniroute-params-unmatched">{t('paramsUnmatched')}</span>
                   <span />
                 </div>
               )
@@ -844,12 +975,12 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
               const match = entry.matches[0]
               if (match === undefined) return null
               return (
-                <div key={entry.id} className="newapi-params-row">
-                  <span className="newapi-params-id">{entry.id}</span>
-                  <span className="newapi-params-values">
+                <div key={entry.id} className="omniroute-params-row">
+                  <span className="omniroute-params-id">{entry.id}</span>
+                  <span className="omniroute-params-values">
                     {`${match.official === true ? `${t('officialMark')} · ` : ''}${match.provider} · ${t('contextWindow')} ${match.contextWindow ?? '—'} / ${t('maxTokens')} ${match.maxTokens ?? '—'}${match.reasoningEfforts !== undefined && match.reasoningEfforts.length > 0 ? ` · ${t('modelReasoning')}: ${match.reasoningEfforts.join('/')}` : ''}`}
                   </span>
-                  <span />
+                  {idBoundNote}
                 </div>
               )
             }
@@ -857,10 +988,10 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
             const match = entry.matches[chosen] ?? entry.matches[0]
             if (match === undefined) return null
             return (
-              <div key={entry.id} className="newapi-params-row">
-                <span className="newapi-params-id">{entry.id}</span>
+              <div key={entry.id} className="omniroute-params-row">
+                <span className="omniroute-params-id">{entry.id}</span>
                 <select
-                  className="newapi-select" aria-label={`${t('paramsProvider')} ${entry.id}`}
+                  className="omniroute-select" aria-label={`${t('paramsProvider')} ${entry.id}`}
                   value={String(chosen)}
                   onChange={(event) => {
                     setParamChoices(current => new Map(current).set(entry.id, Number(event.target.value)))
@@ -872,27 +1003,27 @@ export function NewApiSection(props: NewApiSectionProps): ReactNode {
                     </option>
                   ))}
                 </select>
-                <span className="newapi-params-values">{match.provider}</span>
+                {idBoundNote}
               </div>
             )
           })}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button type="button" className="newapi-button newapi-button--primary" onClick={() => { applyParams(true) }}>
+          <div className="omniroute-params-actions">
+            <button type="button" className="omniroute-button omniroute-button--primary" onClick={() => { applyParams(true) }}>
               {t('paramsOverwrite')}
             </button>
-            <button type="button" className="newapi-button" onClick={() => { applyParams(false) }}>
+            <button type="button" className="omniroute-button" onClick={() => { applyParams(false) }}>
               {t('paramsFillBlank')}
             </button>
-            <button type="button" className="newapi-button" onClick={() => { setParams(undefined); setParamChoices(new Map()) }}>
+            <button type="button" className="omniroute-button" onClick={() => { setParams(undefined); setParamChoices(new Map()) }}>
               {t('fetchCancel')}
             </button>
           </div>
         </div>
       )}
 
-      <p className="newapi-hint">{t('modelHint')}</p>
+      <p className="omniroute-hint">{t('modelHint')}</p>
 
-      <button type="button" className="newapi-button newapi-button--primary" disabled={busy || !writable} onClick={() => { void save() }}>
+      <button type="button" className="omniroute-button omniroute-button--primary omniroute-submit" disabled={busy || !writable} onClick={() => { void save() }}>
         {busy ? t('applying') : t('apply')}
       </button>
     </section>

@@ -5,7 +5,7 @@
  * `[DONE]`, covering both finish-attached and trailing usage-only shapes
  * while ensuring no chunk follows `finish`.
  *
- * @module dsh-llm-newapi/translate
+ * @module dsh-omniroute/translate
  */
 import type { FinishReason, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm';
 import type { WireUsage } from './types.js';
