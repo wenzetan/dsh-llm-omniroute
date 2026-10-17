@@ -2,6 +2,14 @@
   "name": "dsh-omniroute",
   "version": "0.2.0-rc.2-v0.1",
   "description": "OmniRoute (OpenAI-compatible aggregation gateway) adapter for the DeepSeek Harness. Provider route id 'omniroute' with display name 'Custom Provider': chat completions with gateway-declared model capabilities and thinking levels, plus the gateway's own web_search / web_fetch stack on the ctx.web seam. Host half registers the LLM adapter, the /v1/models capability mapping and the web providers; browser half adds the Custom Provider settings section to dsh web. The API key is configured on the web settings page (fixed credentials reference 'omniroute'), never read from environment variables.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wenzetan/dsh-llm-omniroute.git"
+  },
+  "homepage": "https://github.com/wenzetan/dsh-llm-omniroute#readme",
+  "bugs": {
+    "url": "https://github.com/wenzetan/dsh-llm-omniroute/issues"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

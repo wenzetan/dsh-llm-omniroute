@@ -27,11 +27,11 @@
 npm install -g @deepseek-ai/dsh@0.2.0-rc.2
 npm install -g pnpm
 
-# 从本地检出安装（本仓库当前的用法）
-dsh plugin --profile web add file:/path/to/dsh-omniroute
+# 从本地检出安装
+dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 
-# 或直接从仓库 tag 安装
-dsh plugin --profile web add "github:<owner>/dsh-omniroute#v0.2.0-rc.2-v0.1"
+# 或直接从本仓库的 tag 安装
+dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.0-rc.2-v0.1"
 ```
 
 `dsh plugin add` 会写 profile 依赖、把 `dsh-omniroute` 追加进 `dsh.profile.bundles`，并把包装进

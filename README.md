@@ -34,11 +34,11 @@ into the dsh profile that runs your Web UI (usually `web`):
 npm install -g @deepseek-ai/dsh@0.2.0-rc.2
 npm install -g pnpm
 
-# from a checkout (what this repository is used for locally)
-dsh plugin --profile web add file:/path/to/dsh-omniroute
+# from a checkout
+dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 
-# or straight from the repository tag
-dsh plugin --profile web add "github:<owner>/dsh-omniroute#v0.2.0-rc.2-v0.1"
+# or straight from this repository at a tag
+dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.0-rc.2-v0.1"
 ```
 
 `dsh plugin add` writes the profile dependency, appends `dsh-omniroute` to
