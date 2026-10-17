@@ -3,7 +3,7 @@
  *
  * The plugin builds and typechecks against the dsh 0.2.0 seam
  * (`@deepseek-ai/dsh-llm` 0.2.0 line). A static named runtime import of a
- * symbol the HOST's dsh-llm does not export makes the whole `llm-omniroute`
+ * symbol the HOST's dsh-llm does not export makes the whole `dsh-llm-omniroute`
  * loader entry die at ESM link time (`SyntaxError: … does not provide an
  * export named 'X'`) — before any provider code runs. This gate pins that
  * contract: the built entry may only import dsh-llm symbols that exist on
@@ -136,7 +136,7 @@ function namedImportsFrom(source, specifier) {
   // The plugin itself is installed as a copy (not a symlink): module
   // resolution must see the stub dsh-llm first, then fall through to the real
   // workspace node_modules for every other dependency.
-  const pluginDir = join(SCRATCH, 'node_modules', 'dsh-omniroute')
+  const pluginDir = join(SCRATCH, 'node_modules', 'dsh-llm-omniroute')
   mkdirSync(pluginDir, { recursive: true })
   cpSync(join(ROOT, 'package.json'), join(pluginDir, 'package.json'))
   cpSync(join(ROOT, 'lib'), join(pluginDir, 'lib'), { recursive: true })
@@ -188,7 +188,7 @@ function namedImportsFrom(source, specifier) {
     exports: { '.': './index.js', './package.json': './package.json' },
   }, null, 2) + '\n')
 
-  const pluginDir = join(SCRATCH, 'node_modules', 'dsh-omniroute')
+  const pluginDir = join(SCRATCH, 'node_modules', 'dsh-llm-omniroute')
   mkdirSync(pluginDir, { recursive: true })
   cpSync(join(ROOT, 'package.json'), join(pluginDir, 'package.json'))
   cpSync(join(ROOT, 'lib'), join(pluginDir, 'lib'), { recursive: true })

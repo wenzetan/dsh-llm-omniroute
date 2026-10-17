@@ -9,7 +9,7 @@
  * persisted catalog. No harness telemetry headers are sent: the mandatory
  * attribution `User-Agent` is the only product identity on the wire.
  *
- * @module dsh-omniroute/adapter
+ * @module dsh-llm-omniroute/adapter
  */
 import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 import type { GenerateOptions, LlmDiscoveredModel, LlmModelDiscoveryRequest, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm';
@@ -18,7 +18,7 @@ import type { OmniRouteCatalogModel } from './catalog.js';
 import type { OmniRouteWebOptions } from './web.js';
 import type { ModelsDevApi, ModelsDevMatch, ModelsDevParamsRequest, ModelsDevParamsResponse, ProviderHints, WireError } from './types.js';
 /** Prefix for adapter-raised diagnostics. */
-export declare const PKG = "llm-omniroute";
+export declare const PKG = "dsh-llm-omniroute";
 export { DEFAULT_MODEL_EXCLUDE_PATTERNS, displayModelName, modelNameFromId, parseOmniRouteCatalog } from './catalog.js';
 export type { OmniRouteCatalogModel, ParseCatalogOptions } from './catalog.js';
 /**

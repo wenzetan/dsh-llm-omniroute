@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs'
 
 const [, , manifestPath] = process.argv
-const SELF = 'dsh-omniroute'
+const SELF = 'dsh-llm-omniroute'
 const BASE = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
 const pkg = JSON.parse(readFileSync(manifestPath, 'utf8'))

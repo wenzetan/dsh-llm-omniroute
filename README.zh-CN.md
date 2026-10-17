@@ -1,4 +1,4 @@
-# dsh-omniroute
+# dsh-llm-omniroute
 
 [English](README.md) | **中文**
 
@@ -34,7 +34,7 @@ dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#main"
 ```
 
-`dsh plugin add` 会写 profile 依赖、把 `dsh-omniroute` 追加进 `dsh.profile.bundles`，并把包装进
+`dsh plugin add` 会写 profile 依赖、把 `dsh-llm-omniroute` 追加进 `dsh.profile.bundles`，并把包装进
 profile。老宿主上若 bundle 条目缺失，按下面的片段核对并补齐（**不要**整份替换文件）：
 
 ```json
@@ -44,7 +44,7 @@ profile。老宿主上若 bundle 条目缺失，按下面的片段核对并补�
       "bundles": [
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
-        "dsh-omniroute"
+        "dsh-llm-omniroute"
       ]
     }
   }

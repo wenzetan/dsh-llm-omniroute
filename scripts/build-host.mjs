@@ -19,7 +19,7 @@ await build({
   packages: 'external',
 })
 
-console.log('dsh-omniroute: wrote lib/index.js')
+console.log('dsh-llm-omniroute: wrote lib/index.js')
 
 // The sources import siblings with explicit `.ts` extensions
 // (allowImportingTsExtensions), and rewriteRelativeImportExtensions does not
@@ -36,6 +36,6 @@ for (const name of await readdir(TYPES_DIR)) {
   const rewritten = source.replace(SPECIFIER, "$1'$2.js'")
   if (rewritten !== source) {
     await writeFile(file, rewritten)
-    console.log(`dsh-omniroute: rewrote .ts specifiers in ${file}`)
+    console.log(`dsh-llm-omniroute: rewrote .ts specifiers in ${file}`)
   }
 }

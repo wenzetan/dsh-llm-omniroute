@@ -12,7 +12,7 @@
  * (`ctx.connection.rpc.call`). The section registers through the settings
  * shell's `settings.section` slot with the locale seat declared, so the
  * renderer supplies the bound `t`. Settings namespaces are profile entry ids on
- * this line, so the host half's entry must keep the id `llm-omniroute` (the
+ * this line, so the host half's entry must keep the id `dsh-llm-omniroute` (the
  * bundle patch does).
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -242,7 +242,7 @@ export const inject = [
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'llm-omniroute: copy dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-llm-omniroute: copy dictionaries')
 
   // Fiber-scoped styles: removed with the plugin, so a reload swaps them cleanly.
   if (typeof document !== 'undefined') {
@@ -251,7 +251,7 @@ export function apply(ctx: ClientContext): void {
       element.textContent = SECTION_CSS
       document.head.append(element)
       return () => { element.remove() }
-    }, 'llm-omniroute: section styles')
+    }, 'dsh-llm-omniroute: section styles')
   }
 
   const connection = ctx.get('connection') as ConnectionHandle
@@ -261,16 +261,16 @@ export function apply(ctx: ClientContext): void {
   // performs a cross-origin request: it names the draft endpoint/credential or
   // the ids to look up, and the host does the network work.
   const fetchModelParams = (request: ModelsDevParamsRequest) =>
-    connection.rpc.call('/llm-omniroute', 'models-dev-params', request) as Promise<
+    connection.rpc.call('/dsh-llm-omniroute', 'models-dev-params', request) as Promise<
       { ok: true; value: ModelsDevParamsResponse } | { ok: false; error: { message: string } }
     >
   const fetchCatalog = (request: CatalogRequest) =>
-    connection.rpc.call('/llm-omniroute', 'catalog', request) as Promise<
+    connection.rpc.call('/dsh-llm-omniroute', 'catalog', request) as Promise<
       { ok: true; value: CatalogResponse } | { ok: false; error: { message: string } }
     >
 
   // The section's data face over the typert Remote namespaces: reads and
-  // writes the llm-omniroute settings section and the fixed credential
+  // writes the dsh-llm-omniroute settings section and the fixed credential
   // reference. Model discovery rides the plugin's own channel, because the
   // catalog rows carry capability facts (thinking levels, the level → model-id
   // map, vision, tool calling) that the harness's discovery shape has no field

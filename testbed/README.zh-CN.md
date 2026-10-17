@@ -154,7 +154,7 @@ docker tag  docker.m.daocloud.io/library/node:24-bookworm-slim node:24-bookworm-
 | `can only be read by its owner` 类加载失败 | 容器内凭据权限：确认 `chmod 600` 生效（entrypoint 已处理），Windows 挂载下可能无法设权限 |
 | 构建产物新鲜度判红 | 在宿主执行 `npm run build` 并提交重建的 `lib/`（等价于 CI 的 committed artifacts are current） |
 | 首次构建很慢 | 要拉取 `node:24-bookworm-slim`；后续构建命中层缓存 |
-| 某个包下载异常 / 依赖 registry 缓存 | 命名卷 `dsh-testbed-llm-omniroute_npm-cache`、`dsh-testbed-llm-omniroute_pnpm-store` 是包缓存，怀疑缓存损坏时可 `docker volume rm` 后重跑（代价是重新下载） |
+| 某个包下载异常 / 依赖 registry 缓存 | 命名卷 `dsh-testbed-omniroute_npm-cache`、`dsh-testbed-omniroute_pnpm-store` 是包缓存，怀疑缓存损坏时可 `docker volume rm` 后重跑（代价是重新下载） |
 | 单格 FAIL | 先看 `testbed/.out/<版本>-<组合>.log` 的尾部；`[freshness]` 或"镜像陈旧"字样说明镜像没跟上源码，见**《已知限制与注意事项》第 4 条**（镜像新鲜度陷阱） |
 
 ## 已知限制与注意事项
@@ -164,7 +164,7 @@ docker tag  docker.m.daocloud.io/library/node:24-bookworm-slim node:24-bookworm-
 宿主 profile 的 3 条第三方 bundle 行 `superpowers-dsh`、`dsh-quota-panel`、
 `@creait/dsh-tailnet-gateway` **全部还原成功、0 条警告**，`bundles:` 行包含全部行
 （`@deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app, superpowers-dsh, dsh-quota-panel,
-@creait/dsh-tailnet-gateway, dsh-omniroute`），装配断言通过，**退出码 0，跑两遍结果一致**
+@creait/dsh-tailnet-gateway, dsh-llm-omniroute`），装配断言通过，**退出码 0，跑两遍结果一致**
 （两遍均为 `STEPS=assert,seed,stage,l1,pack,profile`，即**未跑 L2**）；
 同期的 `minimal` 回归也全绿。因此 spec 里"npm/pnpm 布局混用"这一唯一待收敛风险**不成立**
 （宿主 profile 本就由 pnpm 管理，容器内 `dsh plugin add` 转发的是同一套 pnpm）。

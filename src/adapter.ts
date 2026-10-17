@@ -9,7 +9,7 @@
  * persisted catalog. No harness telemetry headers are sent: the mandatory
  * attribution `User-Agent` is the only product identity on the wire.
  *
- * @module dsh-omniroute/adapter
+ * @module dsh-llm-omniroute/adapter
  */
 
 import {
@@ -61,7 +61,7 @@ import type {
 } from './types.ts'
 
 /** Prefix for adapter-raised diagnostics. */
-export const PKG = 'llm-omniroute'
+export const PKG = 'dsh-llm-omniroute'
 
 // The advisory catalog row and its parsing rules live in ./catalog.ts; they are
 // re-exported here because the adapter is the surface every consumer already

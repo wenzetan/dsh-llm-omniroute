@@ -8,11 +8,11 @@
  * very next request without re-applying the plugin, while an in-flight stream
  * keeps the facts it started with. The one registration-captured fact — the
  * retry policy — re-registers the route in place when it changes. The plugin
- * also serves model discovery for the `llm-omniroute` settings namespace by
+ * also serves model discovery for the `dsh-llm-omniroute` settings namespace by
  * interrogating `GET {baseURL}/models`, and — once a composition provides the
  * web seam — registers the gateway's own retrieval stack as the `omniroute`
  * search and fetch providers.
- * @module dsh-omniroute
+ * @module dsh-llm-omniroute
  */
 
 import type { Context, VolatileSnapshot } from '@deepseek-ai/cordis'
@@ -127,7 +127,7 @@ function isSupportedHostVersion(version: string): boolean {
 const hostLlmVersion = typeof llmManifest.version === 'string' ? llmManifest.version : 'unknown'
 if (!isSupportedHostVersion(hostLlmVersion)) {
   throw new Error(
-    `dsh-omniroute requires dsh >= ${MINIMUM_DSH_VERSION} ` +
+    `dsh-llm-omniroute requires dsh >= ${MINIMUM_DSH_VERSION} ` +
     `(host ships @deepseek-ai/dsh-llm ${hostLlmVersion}); ` +
     `upgrade the host: npm install -g @deepseek-ai/dsh@${MINIMUM_DSH_VERSION}`,
   )
@@ -148,10 +148,10 @@ function deepEqualJson(left: unknown, right: unknown): boolean {
   return keys.every(key => key in rightRecord && deepEqualJson(leftRecord[key], rightRecord[key]))
 }
 
-export const name = 'llm-omniroute'
+export const name = 'dsh-llm-omniroute'
 export const inject = ['llm']
 
-const NS = 'llm-omniroute'
+const NS = 'dsh-llm-omniroute'
 /**
  * Fixed credential reference for the gateway API key. Deliberately not an
  * environment-variable-style name: the inherited process environment is the
@@ -195,7 +195,7 @@ export interface OmniRouteWebConfig {
 
 /**
  * Plugin config values, validated by the same-named schemastery schema and
- * doubling as the `llm-omniroute` settings-section shape. Every field is
+ * doubling as the `dsh-llm-omniroute` settings-section shape. Every field is
  * optional in yml: `baseURL` falls back to $OMNIROUTE_BASE_URL from a trusted
  * environment layer, then the placeholder {@link DEFAULT_BASE_URL} — a
  * request against the placeholder fails as TRANSPORT at first use, naming the
@@ -796,7 +796,7 @@ export function apply(ctx: Context, config: Config): void {
     }
     cctx.effect(() => registrar.register(
       cctx,
-      '/llm-omniroute',
+      '/dsh-llm-omniroute',
       (endpoint: string, payload: unknown, signal: AbortSignal) => {
         // Failures answer as the error envelope, never a thrown value: the
         // transport maps a thrown handler to an opaque HTTP 500, which hides
@@ -823,10 +823,10 @@ export function apply(ctx: Context, config: Config): void {
         }
         return Promise.resolve({
           ok: false as const,
-          error: { code: 'internal' as const, message: `llm-omniroute: unknown endpoint ${endpoint}`, details: {} },
+          error: { code: 'internal' as const, message: `dsh-llm-omniroute: unknown endpoint ${endpoint}`, details: {} },
         })
       },
-    ), 'llm-omniroute: host RPC channel')
+    ), 'dsh-llm-omniroute: host RPC channel')
   })
 
   // The gateway's own retrieval stack, wired into the web seam under the id
@@ -847,7 +847,7 @@ export function apply(ctx: Context, config: Config): void {
         disposeSearch()
         disposeFetch()
       }
-    }, 'llm-omniroute: web search and fetch providers')
+    }, 'dsh-llm-omniroute: web search and fetch providers')
   })
 
   // Settings presentation policy (0.1.7 seam): configuration now projects

@@ -25,9 +25,9 @@
 
 | 操作 | 数据流 |
 | --- | --- |
-| 保存网关和模型 | Custom Provider 设置页 → `remote.settings.mutate` → profile Cordis patch 的 `llm-omniroute` 行（volatile 字段） |
+| 保存网关和模型 | Custom Provider 设置页 → `remote.settings.mutate` → profile Cordis patch 的 `dsh-llm-omniroute` 行（volatile 字段） |
 | 保存密钥 | 设置页 → `remote.credentials.set` → `omniroute` 凭据引用 |
-| 获取模型 | 设置页 → 自有 RPC `/llm-omniroute` 的 `catalog` → 适配器 → 网关 `/v1/models` → `parseOmniRouteCatalog` → 富目录行 |
+| 获取模型 | 设置页 → 自有 RPC `/dsh-llm-omniroute` 的 `catalog` → 适配器 → 网关 `/v1/models` → `parseOmniRouteCatalog` → 富目录行 |
 | 官方 Models 页发现 | `remote.llm.discoverModels` → 同一适配器 → 折叠后的 `LlmDiscoveredModel[]` |
 | 补充模型参数 | 设置页 → 同一 RPC 的 `models-dev-params` → 宿主下载 models.dev → 返回匹配候选 |
 | 对话 | dsh LlmRuntime → `OmniRouteAdapter` → 网关 `/chat/completions` → SSE → dsh StreamChunk |
@@ -37,7 +37,7 @@
 设置页通过 `settings.section` 注册，因此不需要给官方 Models 页面增加专用布局。客户端使用 dsh
 Remote 命名空间读写设置与凭据；模型目录和 models.dev 查询走插件自己的 RPC 通道，因为目录行携带的
 能力事实（思考等级、等级→id 映射、vision、tool calling）在 `LlmDiscoveredModel` 里没有对应字段。
-设置命名空间就是 profile 里的插件行 id（本插件的 bundle patch 使用 `llm-omniroute`），设置服务只
+设置命名空间就是 profile 里的插件行 id（本插件的 bundle patch 使用 `dsh-llm-omniroute`），设置服务只
 暴露标记为 volatile 的字段，写入落回 profile patch。
 
 ## 代码导航

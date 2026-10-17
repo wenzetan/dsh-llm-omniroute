@@ -8,7 +8,7 @@
  * spec-strict: an event dispatches only on its blank-line terminator, so an
  * unterminated tail at EOF is truncation, not a flushable payload.
  *
- * @module dsh-omniroute/sse
+ * @module dsh-llm-omniroute/sse
  */
 /** The terminal payload the gateway (and OpenAI) sends after the last chunk. */
 export declare const DONE = "[DONE]";

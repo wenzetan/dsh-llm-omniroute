@@ -152,14 +152,14 @@ function stubModelsListing() {
   assert.equal(directory.length, 1)
   assert.equal(directory[0].provider, 'omniroute')
   assert.equal(directory[0].displayName, 'Custom Provider')
-  assert.equal(directory[0].settingsNs, 'llm-omniroute')
+  assert.equal(directory[0].settingsNs, 'dsh-llm-omniroute')
   assert.deepEqual(directory[0].settingsPath, [])
   assert.equal(directory[0].declared, true)
 
   const { asked, restore } = stubModelsListing()
   let discovered
   try {
-    discovered = await ctx.llm.discoverModels('llm-omniroute', {
+    discovered = await ctx.llm.discoverModels('dsh-llm-omniroute', {
       baseURL: 'http://gw.local:3000/v1/',
       apiKey: 'smoke-key',
     })
@@ -195,7 +195,7 @@ function stubModelsListing() {
   await ctx.plugin(LlmRuntime)
   await mountPlugin(ctx)
   await assert.rejects(
-    ctx.llm.discoverModels('llm-omniroute', { baseURL: 'http://gw.local:3000/v1' }),
+    ctx.llm.discoverModels('dsh-llm-omniroute', { baseURL: 'http://gw.local:3000/v1' }),
     (error) => error.code === 'MISSING_CREDENTIAL'
       && error.message.includes('Custom Provider settings page')
       && !error.message.includes('export'),
@@ -209,7 +209,7 @@ function stubModelsListing() {
   await mountPlugin(ctx2)
   const { asked, restore } = stubModelsListing()
   try {
-    const found = await ctx2.llm.discoverModels('llm-omniroute', { provider: 'omniroute' })
+    const found = await ctx2.llm.discoverModels('dsh-llm-omniroute', { provider: 'omniroute' })
     assert.equal(found.length, 3)
   } finally {
     restore()
@@ -246,7 +246,7 @@ function stubModelsListing() {
   const fiber = await mountPlugin(ctx, { baseURL: 'http://first-gw:9000/v1' })
   const first = stubModelsListing()
   try {
-    await ctx.llm.discoverModels('llm-omniroute', { provider: 'omniroute' })
+    await ctx.llm.discoverModels('dsh-llm-omniroute', { provider: 'omniroute' })
   } finally {
     first.restore()
   }
@@ -257,7 +257,7 @@ function stubModelsListing() {
   updateVolatile(fiber.config.baseURL, committed.value.baseURL)
   const second = stubModelsListing()
   try {
-    await ctx.llm.discoverModels('llm-omniroute', { provider: 'omniroute' })
+    await ctx.llm.discoverModels('dsh-llm-omniroute', { provider: 'omniroute' })
   } finally {
     second.restore()
   }
@@ -287,7 +287,7 @@ function stubModelsListing() {
   assert.equal(settings.policies.length, 1, 'exactly one presentation policy must be registered')
   assert.equal(settings.policies[0].presentation.auto, false,
     'the plugin ships its own page, so schema-generated pages must be off')
-  assert.equal(settings.policies[0].owner.name, 'llm-omniroute',
+  assert.equal(settings.policies[0].owner.name, 'dsh-llm-omniroute',
     'the policy must name the plugin fiber it belongs to')
 }
 
@@ -310,7 +310,7 @@ function stubModelsListing() {
   }), { status: 200, headers: { 'content-type': 'application/json' } })
   let discovered
   try {
-    discovered = await ctx.llm.discoverModels('llm-omniroute', { provider: 'omniroute' })
+    discovered = await ctx.llm.discoverModels('dsh-llm-omniroute', { provider: 'omniroute' })
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -434,7 +434,7 @@ function stubModelsListing() {
   // exposure is the connection service's own fence on the 0.1.7 line:
   // channel registration no longer carries a per-handle authority option.
   assert.equal(registered.length, 1)
-  assert.equal(registered[0].channel, '/llm-omniroute')
+  assert.equal(registered[0].channel, '/dsh-llm-omniroute')
 
   // Unknown endpoints answer the error envelope without any network use.
   const answer = await registered[0].handler('nope', {}, new AbortController().signal)
@@ -881,4 +881,4 @@ function stubModelsListing() {
   }
 }
 
-console.log('smoke: llm-omniroute registrations, capability mapping, thinking-level rules (no-think / level-carrying ids / declared tiers), web-provider registration, credentials-service key, settings schema validation, volatile-edit propagation, ordering, display names, models.dev matching, deferred RPC channel, dead-proxy diagnostics, web search+fetch mapping, and empty-string tool-call delta hardening OK')
+console.log('smoke: dsh-llm-omniroute registrations, capability mapping, thinking-level rules (no-think / level-carrying ids / declared tiers), web-provider registration, credentials-service key, settings schema validation, volatile-edit propagation, ordering, display names, models.dev matching, deferred RPC channel, dead-proxy diagnostics, web search+fetch mapping, and empty-string tool-call delta hardening OK')

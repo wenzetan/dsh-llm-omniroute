@@ -8,11 +8,11 @@
  * very next request without re-applying the plugin, while an in-flight stream
  * keeps the facts it started with. The one registration-captured fact — the
  * retry policy — re-registers the route in place when it changes. The plugin
- * also serves model discovery for the `llm-omniroute` settings namespace by
+ * also serves model discovery for the `dsh-llm-omniroute` settings namespace by
  * interrogating `GET {baseURL}/models`, and — once a composition provides the
  * web seam — registers the gateway's own retrieval stack as the `omniroute`
  * search and fetch providers.
- * @module dsh-omniroute
+ * @module dsh-llm-omniroute
  */
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
@@ -28,7 +28,7 @@ export { DEFAULT_FETCH_MAX_CHARS, DEFAULT_SNIPPET_MAX_CHARS, DEFAULT_WEB_MAX_RES
 export type { OmniRouteWebOptions, WebFetchFormat, WebRuntimeHooks } from './web.js';
 export type { OmniRouteAdapterOptions, OmniRouteCatalogModel, OmniRouteConnectionOptions } from './adapter.js';
 export type * from './types.js';
-export declare const name = "llm-omniroute";
+export declare const name = "dsh-llm-omniroute";
 export declare const inject: string[];
 /** Default gateway base: OmniRoute's own default port on loopback, used when neither config nor environment names one. */
 export declare const DEFAULT_BASE_URL = "http://127.0.0.1:20128/v1";
@@ -58,7 +58,7 @@ export interface OmniRouteWebConfig {
 }
 /**
  * Plugin config values, validated by the same-named schemastery schema and
- * doubling as the `llm-omniroute` settings-section shape. Every field is
+ * doubling as the `dsh-llm-omniroute` settings-section shape. Every field is
  * optional in yml: `baseURL` falls back to $OMNIROUTE_BASE_URL from a trusted
  * environment layer, then the placeholder {@link DEFAULT_BASE_URL} — a
  * request against the placeholder fails as TRANSPORT at first use, naming the

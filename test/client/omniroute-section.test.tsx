@@ -43,7 +43,7 @@ describe('section layout contract', () => {
   })
 })
 
-/** A wire face answering one resolved llm-omniroute section (dsh 0.1.7-rc.1 Remote envelopes). */
+/** A wire face answering one resolved dsh-llm-omniroute section (dsh 0.1.7-rc.1 Remote envelopes). */
 function wireFace(overrides: Partial<{
   describeAnswer: unknown
   credentialsAnswer: unknown
@@ -55,7 +55,7 @@ function wireFace(overrides: Partial<{
         writable: true,
         hasDocument: true,
         namespaces: [{
-          ns: 'llm-omniroute',
+          ns: 'dsh-llm-omniroute',
           schema: {},
           value: { baseURL: 'http://gw.local:3000/v1', models: [{ id: 'deepseek-chat', contextWindow: 65536 }] },
           applies: 'live',
@@ -66,7 +66,7 @@ function wireFace(overrides: Partial<{
     })),
     mutateSettings: vi.fn(() => Promise.resolve({
       ok: true,
-      value: { ns: 'llm-omniroute', schema: {}, value: {}, applies: 'live', secrets: [], revision: 8 },
+      value: { ns: 'dsh-llm-omniroute', schema: {}, value: {}, applies: 'live', secrets: [], revision: 8 },
     })),
     describeCredentials: vi.fn(() => Promise.resolve({
       ok: true,
@@ -115,7 +115,7 @@ describe('OmniRouteSection mount', () => {
     expect(api.describeSettings).toHaveBeenCalledTimes(1)
   })
 
-  it('names the missing namespace when the host has no llm-omniroute section', async () => {
+  it('names the missing namespace when the host has no dsh-llm-omniroute section', async () => {
     const api = wireFace({ describeAnswer: { writable: true, hasDocument: true, namespaces: [] } })
     render(<OmniRouteSection api={api as never} t={t} />)
 
@@ -161,7 +161,7 @@ describe('models.dev params update', () => {
         writable: true,
         hasDocument: true,
         namespaces: [{
-          ns: 'llm-omniroute',
+          ns: 'dsh-llm-omniroute',
           schema: {},
           value: {
             baseURL: 'http://gw.local:3000/v1',
@@ -336,7 +336,7 @@ describe('model catalog', () => {
       writable: true,
       hasDocument: true,
       namespaces: [{
-        ns: 'llm-omniroute',
+        ns: 'dsh-llm-omniroute',
         schema: {},
         value: { baseURL: 'http://gw.local:3000/v1', models: [] },
         applies: 'live',
@@ -424,7 +424,7 @@ describe('model catalog', () => {
       writable: true,
       hasDocument: true,
       namespaces: [{
-        ns: 'llm-omniroute',
+        ns: 'dsh-llm-omniroute',
         schema: {},
         value: {
           baseURL: 'http://gw.local:3000/v1',

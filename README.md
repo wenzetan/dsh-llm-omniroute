@@ -1,4 +1,4 @@
-# dsh-omniroute
+# dsh-llm-omniroute
 
 **English** | [中文](README.zh-CN.md)
 
@@ -41,7 +41,7 @@ dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#main"
 ```
 
-`dsh plugin add` writes the profile dependency, appends `dsh-omniroute` to
+`dsh plugin add` writes the profile dependency, appends `dsh-llm-omniroute` to
 `dsh.profile.bundles`, and installs the package into the profile. If the bundle
 entry is missing on an older host, append it beside the existing entries — this
 is a JSON fragment to check, **not** a replacement for the whole file:
@@ -53,7 +53,7 @@ is a JSON fragment to check, **not** a replacement for the whole file:
       "bundles": [
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
-        "dsh-omniroute"
+        "dsh-llm-omniroute"
       ]
     }
   }

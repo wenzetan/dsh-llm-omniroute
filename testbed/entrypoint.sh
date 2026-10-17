@@ -192,7 +192,7 @@ pack_companion() {
 
 # bundles 行决定 dsh 启动时装载哪些 bundle 层。CI 里这一步是手工补写的，
 # 这里同样显式写入并打印，避免"装了但没注册"的假绿。
-# 包名由调用点给出（`register_bundle_rows dsh-omniroute`）——`dsh plugin add` 的
+# 包名由调用点给出（`register_bundle_rows dsh-llm-omniroute`）——`dsh plugin add` 的
 # reconcile 只把"本次新增的依赖"计入 bundles，对端包在安装时已是依赖，必须显式补行。
 register_bundle_rows() {
 	node -e '
@@ -243,16 +243,16 @@ build_profile() {
 		register_bundle_rows "${COMPANION_PKG_NAME:-$COMPANION}"
 	fi
 	[ -f "$STATE/profiles/web/package.json" ] || die "dsh plugin add 未生成 $STATE/profiles/web/package.json"
-	register_bundle_rows dsh-omniroute
+	register_bundle_rows dsh-llm-omniroute
 }
 
 # 装配断言：组合树里必须出现本插件行。
 dump_profile() {
 	dsh --profile web --dump-config > /work/dump-config.txt 2>&1 \
 		|| die "dsh --dump-config 失败，见 /work/dump-config.txt"
-	grep -q "dsh-omniroute" /work/dump-config.txt \
-		|| die "组合树中没有 dsh-omniroute 行（patch 层未生效）"
-	log profile "装配断言通过：组合树包含 dsh-omniroute"
+	grep -q "dsh-llm-omniroute" /work/dump-config.txt \
+		|| die "组合树中没有 dsh-llm-omniroute 行（patch 层未生效）"
+	log profile "装配断言通过：组合树包含 dsh-llm-omniroute"
 }
 
 run_l2() {

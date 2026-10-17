@@ -138,7 +138,7 @@ say "boot 图包含客户端 bundle（${self_bundle}）"
 #    路径、方法、rpcId 与 unknown-endpoint 语义全部来自契约的 rpcProbes[0]。
 rpc_probe 0 || exit 1
 [ "$RPC_CODE" = "200" ] \
-	|| die "RPC 通道 /llm-omniroute 非 200（HTTP $RPC_CODE；405 = SPA 回退，说明通道未注册）"
+	|| die "RPC 通道 /dsh-llm-omniroute 非 200（HTTP $RPC_CODE；405 = SPA 回退，说明通道未注册）"
 rpc_assert 0
 say "RPC 通道应答正确（HTTP 200 + unknown-endpoint 语义）"
 

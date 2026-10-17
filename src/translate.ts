@@ -5,7 +5,7 @@
  * `[DONE]`, covering both finish-attached and trailing usage-only shapes
  * while ensuring no chunk follows `finish`.
  *
- * @module dsh-omniroute/translate
+ * @module dsh-llm-omniroute/translate
  */
 
 import { EMPTY_RESPONSE_CODE, LlmError } from '@deepseek-ai/dsh-llm'

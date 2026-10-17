@@ -9,7 +9,7 @@
  */
 import { build } from 'esbuild'
 
-const ID = 'dsh-omniroute'
+const ID = 'dsh-llm-omniroute'
 
 /**
  * Loader module-table specifiers: everything the bundle requires instead of

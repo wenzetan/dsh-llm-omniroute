@@ -16,7 +16,7 @@
  * (`name: 'WebError'` plus a machine-routable `code`). That keeps the plugin
  * loadable in a composition that has no web seam at all.
  *
- * @module dsh-omniroute/web
+ * @module dsh-llm-omniroute/web
  */
 
 import type { WebFetchBody, WebFetchRequest, WebFetchResult, WebSearchRequest, WebSearchResult, WebSearchSource } from '@deepseek-ai/dsh-web'

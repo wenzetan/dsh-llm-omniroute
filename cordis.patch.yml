@@ -1,4 +1,4 @@
-# dsh-omniroute bundle patch
+# dsh-dsh-llm-omniroute bundle patch
 #
 # One entry: `insert` mounts the plugin row. The host half registers the
 # `omniroute` provider route on ctx.llm (display name "Custom Provider") and,
@@ -7,7 +7,7 @@
 # see README「配置」.
 #
 # The row id below IS the settings namespace the settings page writes
-# (`llm-omniroute`), so it must stay in sync with src/index.ts.
+# (`dsh-llm-omniroute`), so it must stay in sync with src/index.ts.
 #
 # Why the web seam is not pinned here: `web` is an official core row, and a
 # bundle patch must not override core rows. Pin it in the profile's own
@@ -21,5 +21,5 @@
 #       fetchProvider: omniroute
 
 - insert:
-    - id: llm-omniroute
-      name: dsh-omniroute
+    - id: dsh-llm-omniroute
+      name: dsh-dsh-llm-omniroute

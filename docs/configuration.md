@@ -9,7 +9,7 @@
 
 | 内容 | 保存方式 |
 | --- | --- |
-| 网关地址、模型列表、models.dev 代理、web 行为 | profile 的 Cordis patch 中 `llm-omniroute` 插件行的配置（volatile 字段） |
+| 网关地址、模型列表、models.dev 代理、web 行为 | profile 的 Cordis patch 中 `dsh-llm-omniroute` 插件行的配置（volatile 字段） |
 | API 密钥 | dsh credentials store，固定引用名 `omniroute` |
 | 插件启用状态 | profile 的 `package.json` → `dsh.profile.bundles` |
 | web seam 指向 | profile 自己的 Cordis patch 里的 `- id: web` 覆盖（`searchProvider` / `fetchProvider`） |
@@ -23,8 +23,8 @@ Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后
 多数用户使用 Web 设置页即可，无需手动改文件；如果同一字段在设置页被修改过，设置页的值优先。
 
 ```yaml
-- id: llm-omniroute
-  name: dsh-omniroute
+- id: dsh-llm-omniroute
+  name: dsh-dsh-llm-omniroute
   config:
     baseURL: http://127.0.0.1:20128/v1
     models:

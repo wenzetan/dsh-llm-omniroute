@@ -172,7 +172,7 @@ export type OmniRouteSectionProps =
   & PropsLocale<'settings.omniroute'>
   & InjectFace<OmniRouteSectionInjected>
 
-const NS = 'llm-omniroute'
+const NS = 'dsh-llm-omniroute'
 /** Credential reference the host half resolves per request (see apply.ts). */
 const KEY_REF = 'omniroute'
 

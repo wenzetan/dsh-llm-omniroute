@@ -30,7 +30,7 @@
  * `low` and `medium` actually route). An id that encodes a level is the
  * stronger evidence and always wins.
  *
- * @module dsh-omniroute/catalog
+ * @module dsh-llm-omniroute/catalog
  */
 import type { WireModelEntry } from './types.js';
 /**

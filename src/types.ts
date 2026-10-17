@@ -4,7 +4,7 @@
  * OmniRoute 聚合任意上游模型并统一暴露 OpenAI 协议；本文件即该协议的请求/
  * 响应/流增量形状，不含 DeepSeek 专属字段（thinking / reasoning_effort）。
  *
- * @module dsh-omniroute/types
+ * @module dsh-llm-omniroute/types
  */
 
 /** Request body for `POST {baseURL}/chat/completions`. */
