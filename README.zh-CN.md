@@ -30,8 +30,8 @@ npm install -g pnpm
 # 从本地检出安装
 dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 
-# 或直接从本仓库安装；发布 tag 之后改成 pin 该 tag
-dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#main"
+# 或直接从本仓库的已发布 tag 安装
+dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.0-rc.2-v0.1"
 ```
 
 `dsh plugin add` 会写 profile 依赖、把 `dsh-llm-omniroute` 追加进 `dsh.profile.bundles`，并把包装进

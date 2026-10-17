@@ -37,8 +37,8 @@ npm install -g pnpm
 # from a checkout
 dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 
-# or straight from this repository; pin a published tag once one exists
-dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#main"
+# or straight from this repository at the published tag
+dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.0-rc.2-v0.1"
 ```
 
 `dsh plugin add` writes the profile dependency, appends `dsh-llm-omniroute` to
