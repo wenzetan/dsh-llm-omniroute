@@ -121,6 +121,15 @@ provider 时，才需要动 `web.searchProvider` / `web.fetchProvider`。
 | models.dev 下载失败 | 网络与代理设置；插件代理只作用于这次下载，宿主自身也可能套用自己的环境代理 |
 | 安装时提示 missing peer | 宿主运行时自带这些包；装完能正常启动就不必再装一份 |
 
+## 环境注意事项
+
+在导出了 `GIT_CONFIG_COUNT` 的机器上，`git` 会报缺少 `GIT_CONFIG_KEY_0` 而无法执行命令。做仓库操作时
+去掉这几个变量：
+
+```bash
+env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_VALUE_1 git status
+```
+
 ## 文档
 
 - [配置与排障](docs/configuration.md)：全部字段、思考等级规则、models.dev 面板、代理与保存失败。

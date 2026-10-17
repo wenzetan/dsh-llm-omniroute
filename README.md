@@ -142,6 +142,15 @@ back, and the row can be edited by hand if you disagree.
 | models.dev download fails | Network and proxy settings; the plugin proxy applies to that download only, and dsh may also apply its own environment proxy |
 | Missing-peer warnings during install | dsh supplies the host packages at runtime; if install and startup succeed, do not add duplicate host packages |
 
+## Environment notes
+
+On a machine whose environment exports `GIT_CONFIG_COUNT`, `git` fails with a missing `GIT_CONFIG_KEY_0`
+instead of running the command. Strip those variables for repository work:
+
+```bash
+env -u GIT_CONFIG_COUNT -u GIT_CONFIG_VALUE_0 -u GIT_CONFIG_VALUE_1 git status
+```
+
 ## Documentation
 
 The detailed guides are currently in Chinese:
