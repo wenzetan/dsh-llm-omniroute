@@ -2,7 +2,7 @@
 
 [返回 README](../README.zh-CN.md) · [配置指南](configuration.md) · [实现设计](../DESIGN.md)
 
-本文面向维护者。当前包版本为 `0.2.1-rc.2-v0.2`，适配 dsh `0.2.1-rc.2` 单宿主线。
+本文面向维护者。当前包版本为 `0.2.1-rc.2-v0.3`，适配 dsh `0.2.1-rc.2` 单宿主线。
 
 ## 版本号规则
 
@@ -137,8 +137,12 @@ SPA 回退的 405。插件改为注入 `connection` 与 `webServer`，并把自�
 升级宿主时重新核查一遍，只有确实被请求且需要换名时才加回。
 
 用户 profile 升级插件时，插件目录里可能残留上一次安装自带的 `node_modules/@deepseek-ai`，profile
-根目录也可能残留旧版 `@deepseek-ai/schemastery` / `cosmokit`。这些旧包会优先于宿主包被解析：前者
-让最低版本检查读到 0.2.0，后者让 `baseURLField.volatile` 在 schemastery 3.18.2 上不存在。把插件
-目录里的 `@deepseek-ai` 移出，并让 profile 根目录的 `@deepseek-ai` 指向宿主包（0.2.1 需要
-schemastery 3.18.5、cosmokit 1.8.6），再重启宿主。`autoInstallPeers: false` 的全新安装不会生成
-这些副本。
+根目录也可能残留旧版 `@deepseek-ai/schemastery` / `cosmokit`。这些旧包会优先于宿主包被解析，让
+最低版本检查读到 0.2.0 之类的旧宿主版本。把插件目录里的 `@deepseek-ai` 移出，并让 profile 根目录的
+`@deepseek-ai` 指向宿主包（0.2.1 需要 schemastery 3.18.5、cosmokit 1.8.6），再重启宿主。
+
+`autoInstallPeers: false` 的安装会在 profile 根目录生成插件自己请求的 `@deepseek-ai/schemastery`
+与 `@deepseek-ai/cosmokit`（来自插件的 `peerDependencies`），此时这些包先于宿主包被解析。插件的
+配置 schema 集中在 `src/config.ts`：逐字段 resolver 负责校验与归一，表单 schema 把 `meta.volatile`
+写在每个字段自己那份实例上（与 `Schema.prototype.volatile()` 写的是同一个字段），宿主导出的
+`RetryPolicySchema` 因此保持原样，不被本插件的标记改写。

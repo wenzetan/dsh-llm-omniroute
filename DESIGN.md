@@ -11,11 +11,11 @@
 
 - **对话**：`ctx.llm` 上的 `omniroute` 路由（显示名 **Custom Provider**），把 dsh 的模型请求转成
   OpenAI-compatible chat-completions 请求，再把 SSE 响应还原成 dsh 的内容块。
-- **模型目录**：解析 `GET /v1/models` 的容量、能力与思考等级字段，折叠等级变体，产出配置页可直接
-  采纳的目录行；请求只发送网关自己列出的 id。
-- **web 能力**：`ctx.web` 上的 `omniroute` 搜索/抓取 provider，分别转发到网关的
-  `POST /v1/search` 与 `POST /v1/web/fetch`，取代出厂的 `deepseek-official` /
-  `deepseek-search-api` 搜索与本地 `http` 抓取。
+- **模型目录**：解析 `GET /v1/models` 的容量、图片输入与思考等级字段，折叠等级变体，产出配置页
+  可直接采纳的目录行；请求只发送网关自己列出的 id。
+- **web 能力**：`ctx.web` 上的 `omniroute` 搜索/抓取 provider。搜索与抓取各有一个开关：打开时转发
+  到网关的 `POST /v1/search` 与 `POST /v1/web/fetch`；关闭时把该项交给 dsh 自带的 DeepSeek 官方
+  Search / Fetch API 实现，行为与不装本插件时一致。
 
 网关决定可用模型、权限与实际能力；插件不内置可直接使用的模型目录，也不修改 dsh 核心。
 
@@ -29,21 +29,23 @@
 | 保存密钥 | 设置页 → `remote.credentials.set` → `omniroute` 凭据引用 |
 | 获取模型 | 设置页 → 自有 RPC `/dsh-llm-omniroute` 的 `catalog` → 适配器 → 网关 `/v1/models` → `parseOmniRouteCatalog` → 富目录行 |
 | 官方 Models 页发现 | `remote.llm.discoverModels` → 同一适配器 → 折叠后的 `LlmDiscoveredModel[]` |
-| 补充模型参数 | 设置页 → 同一 RPC 的 `models-dev-params` → 宿主下载 models.dev → 返回匹配候选 |
+| 补充模型参数 | 设置页 → 同一 RPC 的 `models-dev-params` → 宿主下载 models.dev → 返回匹配候选；应用时只填补行里仍空白的字段 |
 | 对话 | dsh LlmRuntime → `OmniRouteAdapter` → 网关 `/chat/completions` → SSE → dsh StreamChunk |
-| web_search | `ctx.web` → `OmniRouteSearchProvider` → 网关 `/v1/search` → seam `sources[]` |
-| web_fetch | `ctx.web` → `OmniRouteFetchProvider` → 网关 `/v1/web/fetch` → seam `WebFetchResult` |
+| web_search | `ctx.web` → `OmniRouteSearchProvider` → 开关打开时走网关 `/v1/search`，关闭时走 dsh 自带的 DeepSeek Search API → seam `sources[]` |
+| web_fetch | `ctx.web` → `OmniRouteFetchProvider` → 开关打开时走网关 `/v1/web/fetch`，关闭时走 dsh 自带的 DeepSeek Fetch API → seam `WebFetchResult` |
 
 设置页通过 `settings.section` 注册，因此不需要给官方 Models 页面增加专用布局。客户端使用 dsh
 Remote 命名空间读写设置与凭据；模型目录和 models.dev 查询走插件自己的 RPC 通道，因为目录行携带的
-能力事实（思考等级、等级→id 映射、vision、tool calling）在 `LlmDiscoveredModel` 里没有对应字段。
+能力事实（思考等级、等级→id 映射、图片输入、工具能力）在 `LlmDiscoveredModel` 里没有对应字段。
 设置命名空间就是 profile 里的插件行 id（本插件的 bundle patch 使用 `dsh-llm-omniroute`），设置服务只
 暴露标记为 volatile 的字段，写入落回 profile patch。
 
-设置页的模型目录按 id 首个路径段分组，分组可折叠，候选列表的全选在满选时切换为反选；`groupLabels`
-只改变分组显示名与行文本，不参与请求。分组词汇（分组名、尾段、显示名拼法）由 `src/group.ts` 一处
-定义：设置页的行文本与适配器服务给模型列表的名字都按它现拼，所以改一个显示名，设置页与对话里的模型
-选择器同时生效，请求发送的 id 与匹配规则不受影响。
+设置页的模型列表按 id 首个路径段分组：网关自己拼装的组合模型（id 不含 `/`）归入 `combos` 组并排在
+最上面，其余分组按组名排序；候选列表与已配置的模型列表共用同一套分组标题与折叠交互，候选列表的
+全选在满选时切换为反选；`groupLabels` 只改变分组显示名与行文本，不参与请求。分组词汇（分组名、
+尾段、显示名拼法与分组排序）由 `src/group.ts` 一处定义：设置页的行文本与适配器服务给模型列表的
+名字都按它现拼，所以改一个显示名，设置页与对话里的模型选择器同时生效，请求发送的 id 与匹配规则
+不受影响。
 
 任意键映射（`groupLabels`、`providerHints`）在 Config 里必须声明成 `z.dict`，不能写成 `z.object({})`：
 设置服务逐键投影表单字段，空对象 schema 会让存下来的整张映射读回成 `{}`。
@@ -52,14 +54,15 @@ Remote 命名空间读写设置与凭据；模型目录和 models.dev 查询走�
 
 | 文件 | 职责 |
 | --- | --- |
-| [src/index.ts](src/index.ts) | 配置定义与 schema 校验、最低宿主检查、服务注册、volatile 配置读取与重试策略更新、凭据解析、自有 RPC、web provider 注册 |
+| [src/index.ts](src/index.ts) | 最低宿主检查、服务注册、volatile 配置读取与重试策略更新、凭据解析、自有 RPC、web provider 注册与开关分发 |
+| [src/config.ts](src/config.ts) | 配置 schema 与逐字段校验、volatile 引用构建、web 与代理设置的解析 |
 | [src/catalog.ts](src/catalog.ts) | `/v1/models` 能力映射、思考等级三段规则、等级变体折叠与反向映射、展示名 |
-| [src/group.ts](src/group.ts) | 分组词汇：分组名、尾段与「[分组显示名]尾段」的显示名拼法，宿主与设置页共用 |
+| [src/group.ts](src/group.ts) | 分组词汇：分组名、尾段、「[分组显示名]尾段」的显示名拼法与分组排序，宿主与设置页共用 |
 | [src/adapter.ts](src/adapter.ts) | 传输与目录服务：列表、发现、参数匹配、请求发送、重试策略元数据与错误处理 |
 | [src/serialize.ts](src/serialize.ts) | 将消息和工具定义转换为网关请求 |
 | [src/sse.ts](src/sse.ts) | 将字节流拆成 SSE payload，检查结束标记 |
 | [src/translate.ts](src/translate.ts) | 合并文本、思考与工具调用增量，转换用量和结束原因 |
-| [src/web.ts](src/web.ts) | `ctx.web` 的搜索/抓取 provider 与结果映射 |
+| [src/web.ts](src/web.ts) | `ctx.web` 的搜索/抓取 provider、网关结果映射，以及关闭开关时的原生实现委托 |
 | [src/types.ts](src/types.ts) | 网关协议、web 端点与 RPC 载荷的数据类型 |
 | [src/client/apply.ts](src/client/apply.ts) | 设置页、语言字典、样式及远程服务接线 |
 | [src/client/OmniRouteSection.tsx](src/client/OmniRouteSection.tsx) | 表单、候选模型、参数确认和保存交互 |
@@ -95,17 +98,24 @@ OmniRoute 是聚合网关，`capabilities.effort_tiers` 来自整家 provider �
 
 ## web seam
 
-`src/web.ts` 只做一层薄适配：provider 选择、密钥、配额、降级全部留给网关。要点：
+`src/web.ts` 只做一层薄适配：provider 选择、密钥、配额、降级全部留给网关。两个能力各有一个开关，
+关闭时该能力交给 dsh 自带的实现（`@deepseek-ai/dsh-web-deepseek-api` 的 provider 类），因此端点、
+参数、错误码与配置提示都与不装本插件时一致。要点：
 
 - 运行时**不 import** `@deepseek-ai/dsh-web`：服务实例从 `ctx.web` 拿到（声明合并是类型层的），两个
   错误对象在本地按 seam 消费方读取的形状构造（`name: 'WebError'` + 机器可路由的 `code`）。这样在
-  没有 web seam 的组合里插件照样能加载。
+  没有 web seam 的组合里插件照样能加载。原生实现同样按需读取（首次真正走原生路径时 `import()`），
+  顶层 import 会让没有原生 web 行的组合在插件加载时就失败。
 - 注册走 `ctx.inject(['web'], …)` + `cctx.effect(...)`：没有 seam 时不注册；seam 稍后就绪时照常注册。
+  两个开关都关闭时**仍然注册**：seam 的指向（profile 的 `web.searchProvider` / `fetchProvider`）必须
+  继续解析到 `omniroute`，否则会变成 `WEB_PROVIDER_CONFIGURED_MISSING`。
 - 搜索把 `results[]` 映射成 `sources[]`、`answer.text` 映射成 `content`，并按 `snippetMaxChars`
   截断（网关的 snippet 是整段正文抽取，单次可达上百 KB）。
 - 抓取把抽取出的 markdown 作为 `{kind: 'text'}` 返回；`statusCode` 优先取网关 provider 在
   `metadata` 里报告的状态（如 Firecrawl 的 `statusCode`），否则为 200；超过 `fetchMaxChars` 时截断
   并置 `truncated`。
+- 关闭开关的那条路径复用原生 provider 自己的凭据解析（`DEEPSEEK_API_KEY`）与账号令牌判定，所以
+  关掉开关后走的是真正的原生行为，而不是插件另写一份调用。
 - seam 的指向（`web.searchProvider` / `web.fetchProvider`）由 profile 自己的 patch 声明。`web` 是官方
   核心行，bundle 覆盖核心行会破坏同一 profile 里其他组合；插件只注册 provider，不假定自己被选中。
   0.2.1 的 `web` 行默认指向 `deepseek-official` / `http`，网页搜索设置里的 DeepSeek Search/Fetch API
@@ -129,11 +139,16 @@ OmniRoute 是聚合网关，`capabilities.effort_tiers` 来自整家 provider �
 环境变量来源交给配置供应商目录。当前官方 Models 编辑器对本插件只显示「其余字段在
 cordis.patch.yml 中」，端点与密钥仍在本插件自己的设置页编辑。
 
-配置以 schemastery schema 声明，所有字段标记为 volatile：Loader 在 profile patch 只改动 volatile
-字段时就地更新运行中的配置引用，不重新加载插件。每次请求读取一次引用快照（`snapshotConfig`）并
-据此解析密钥，配置热更新不会改变正在进行的请求。写入前由 `dsh-config-editor` 用完整 schema 校验
-（拒绝非法 URL、空过滤项、`effortModels` 中未声明的等级等）。重试策略是在注册时读取的，所以
-`options()` 检测到变化时通过 `registration.replace` 更新，避免短暂移除模型路由。
+配置以 schemastery schema 声明（`src/config.ts`），所有字段标记为 volatile：Loader 在 profile patch
+只改动 volatile 字段时就地更新运行中的配置引用，不重新加载插件。标记写在字段 schema 的
+`meta.volatile`，与 `Schema.prototype.volatile()` 写入的是同一个字段；每个字段的表单 schema 由
+`schema.Config` 的工厂重建一份副本，宿主导出的 `RetryPolicySchema` 因此不会被本插件改写。
+`~standard.validate` 返回的就是运行中的引用（cordis 把它的结果交给 `apply`），可调用的
+`schema.Config(raw)` 供 Loader 从已验证的一行构建配置，两者都从同一套逐字段 resolver 出发。
+每次请求读取一次引用快照（`snapshotConfig`）并据此解析密钥，配置热更新不会改变正在进行的请求。
+写入前由 `dsh-config-editor` 用完整 schema 校验（拒绝非法 URL、空过滤项、`effortModels` 中未声明的
+等级等）。重试策略是在注册时读取的，所以 `options()` 检测到变化时通过 `registration.replace` 更新，
+避免短暂移除模型路由。
 
 密钥使用固定引用 `omniroute`，不将 `OMNIROUTE_API_KEY` 作为回退来源。缺少密钥时插件仍能加载设置
 页，实际请求会报 `MISSING_CREDENTIAL`。浏览器不读取明文密钥。web provider 与对话路由共用同一份
@@ -145,7 +160,7 @@ cordis.patch.yml 中」，端点与密钥仍在本插件自己的设置页编辑
 | --- | --- |
 | 默认模型目录为空 | 网关的模型集合是部署相关的；由发现或用户配置补充 |
 | 不设置统一输出上限 | 模型与全局配置均未指定时，省略 `max_tokens`，使用上游默认值 |
-| 声明文本输入 | 序列化器还不发送图片；网关的 `vision` 标记只作为能力事实保留与展示，谎报会让宿主接受注定失败的请求 |
+| 声明文本输入 | 序列化器还不发送图片；网关的 `vision` 标记只作为能力事实保留与展示（设置页展示的能力只有这一项，且只由网关提供，models.dev 不会覆盖），`toolCalling` 同样保留在行数据里并随保存写回、只是不展示；谎报会让宿主接受注定失败的请求 |
 | 逐模型提供思考等级 | 行声明的等级决定选择器；选中的值要么折进 id，要么作为 `reasoning_effort` 发送，不额外发送 `thinking` |
 | `none` 也显式发送 | `reasoning_effort: none` 是「不要思考」的指令；省略只会退回上游默认 |
 | 保留空 assistant 文本为 `""` | 避免部分网关拒绝纯工具调用轮次中的 `null` 内容 |

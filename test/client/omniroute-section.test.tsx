@@ -40,9 +40,10 @@ describe('section layout contract', () => {
     expect(SECTION_CSS).toMatch(/\.omniroute-input \{[\s\S]*?height: 28px/)
     // 候选列表必须有界并自行滚动，否则几十个网关模型会把后续控件推到很远的下方。
     expect(SECTION_CSS).toMatch(/\.omniroute-candidates-list \{[\s\S]*?max-height: 320px; overflow-y: auto;/)
-    // 分组标题就是折叠开关，高度与行内小按钮一致，条数右对齐且用等宽数字。
-    expect(SECTION_CSS).toMatch(/\.omniroute-candidategroup-toggle \{[\s\S]*?height: 28px;[\s\S]*?border-radius: 8px;/)
-    expect(SECTION_CSS).toMatch(/\.omniroute-candidategroup-count \{[\s\S]*?tabular-nums/)
+    // 分组标题就是折叠开关，高度与行内小按钮一致，条数右对齐且用等宽数字；
+    // 候选面板与已配置列表共用同一套规则。
+    expect(SECTION_CSS).toMatch(/\.omniroute-grouptoggle \{[\s\S]*?height: 28px;[\s\S]*?border-radius: 8px;/)
+    expect(SECTION_CSS).toMatch(/\.omniroute-groupcount \{[\s\S]*?tabular-nums/)
   })
 })
 
@@ -158,7 +159,7 @@ describe('environment-supplied credential (read-only)', () => {
 })
 
 describe('models.dev params update', () => {
-  it('shows the summary and applies chosen provider facts overwriting existing values', async () => {
+  it('shows the summary and fills the fields the gateway left blank', async () => {
     const api = wireFace({
       describeAnswer: {
         writable: true,
@@ -196,9 +197,10 @@ describe('models.dev params update', () => {
     const picker = screen.getByLabelText(`${t('paramsProvider')} qwen/qwen-max`) as HTMLSelectElement
     expect(picker.options.length).toBe(2)
 
-    // Overwrite applies the first match of each id (deepseek 128K/8K, qwen 262K/32K);
-    // mystery-model keeps its (empty) values.
-    fireEvent.click(screen.getByText(t('paramsOverwrite')))
+    // The blank fields take the chosen match of each id (deepseek 128K/8K plus
+    // its levels, qwen 262K/32K); mystery-model matched nothing and keeps its
+    // empty row.
+    fireEvent.click(screen.getByText(t('paramsApply')))
     await waitFor(() => { expect(screen.getByText(new RegExp(t('paramsApplied')))).toBeTruthy() })
     fireEvent.click(screen.getByText(t('apply')))
     await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
@@ -209,22 +211,47 @@ describe('models.dev params update', () => {
     expect(models[2]).toEqual({ id: 'mystery-model' })
   })
 
-  it('fill-blank mode keeps values the rows already carry', async () => {
-    const api = wireFace()
+  it('keeps the capacities and image support the rows already carry', async () => {
+    // 网关是容量与图片输入的权威：行里已有的值不会被 models.dev 改写，只有空着的
+    // 字段才被补上。
+    const api = wireFace({
+      describeAnswer: {
+        writable: true,
+        hasDocument: true,
+        namespaces: [{
+          ns: 'dsh-llm-omniroute',
+          schema: {},
+          value: {
+            baseURL: 'http://gw.local:3000/v1',
+            models: [{ id: 'deepseek-chat', contextWindow: 65_536, vision: true, toolCalling: false }],
+          },
+          applies: 'live',
+          secrets: [],
+          revision: 7,
+        }],
+      },
+    })
     const fetchModelParams = paramsFace()
     render(<OmniRouteSection api={api as never} t={t} fetchModelParams={fetchModelParams as never} />)
 
     await waitFor(() => { expect(screen.getByText(t('updateParams'))).toBeTruthy() })
-    // The fixture row already has contextWindow 65536; blank mode keeps it and only fills maxTokens.
     fireEvent.click(screen.getByText(t('updateParams')))
-    await waitFor(() => { expect(screen.getByText(t('paramsOverwrite'))).toBeTruthy() })
-    fireEvent.click(screen.getByText(t('paramsFillBlank')))
+    await waitFor(() => { expect(screen.getByText(t('paramsApply'))).toBeTruthy() })
+    fireEvent.click(screen.getByText(t('paramsApply')))
     await waitFor(() => { expect(screen.getByText(new RegExp(t('paramsApplied')))).toBeTruthy() })
     fireEvent.click(screen.getByText(t('apply')))
     await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
     const models = api.mutateSettings.mock.calls[0][1]
       .find((op: { path: string[] }) => op.path[0] === 'models').value
-    expect(models[0]).toEqual({ id: 'deepseek-chat', contextWindow: 65_536, maxTokens: 8_192, reasoningEfforts: ['low', 'medium', 'high'], defaultReasoningEffort: 'high' })
+    expect(models[0]).toEqual({
+      id: 'deepseek-chat',
+      contextWindow: 65_536,
+      maxTokens: 8_192,
+      vision: true,
+      toolCalling: false,
+      reasoningEfforts: ['low', 'medium', 'high'],
+      defaultReasoningEffort: 'high',
+    })
   })
 
   it('sends the proxy url only while the toggle is on, and persists the proxy section', async () => {
@@ -368,7 +395,7 @@ describe('model catalog', () => {
         effortModels: { high: 'agy/gemini-3.8-flash-high', low: 'agy/gemini-3.8-flash-low' },
       },
     ])
-    render(<OmniRouteSection
+    const { container } = render(<OmniRouteSection
       api={api as never} t={t}
       fetchModelParams={paramsFace() as never} fetchCatalog={fetchCatalog as never}
     />)
@@ -380,6 +407,14 @@ describe('model catalog', () => {
     expect(screen.getByText(new RegExp('no-think/agy/claude-sonnet-4-6'))).toBeTruthy()
     fireEvent.click(screen.getByText(t('fetchAdopt')))
     await waitFor(() => { expect(screen.getByLabelText(`${t('modelId')} 1`)).toBeTruthy() })
+
+    // 能力展示只保留图片输入，且只由网关声明：挂徽标的行就是网关报告 vision 的那一行，
+    // 工具能力是数据里的事实，界面不为它挂徽标。
+    const adopted = container.querySelectorAll('.omniroute-entry')
+    expect(adopted[0]?.querySelectorAll('.omniroute-badge')).toHaveLength(0)
+    const badges = adopted[1]?.querySelectorAll('.omniroute-badge') ?? []
+    expect(badges).toHaveLength(1)
+    expect(badges[0]?.textContent).toBe(t('capabilityVision'))
 
     // Adoption orders rows by id, so the two adopted rows are
     // (1) the folded `agy/…` route and (2) the no-thinking one.
@@ -577,24 +612,24 @@ describe('model catalog', () => {
     await waitFor(() => { expect(screen.getByText(t('fetchAdopt'))).toBeTruthy() })
 
     const headings = (): HTMLButtonElement[] =>
-      [...container.querySelectorAll<HTMLButtonElement>('.omniroute-candidategroup-toggle')]
-    // 标题即开关：分组名与条数同排，组合组排在末位。
-    expect(headings().map(node => node.textContent)).toEqual(['agy2', 'command-code1', 'combos1'])
-    expect(headings()[0].getAttribute('aria-expanded')).toBe('true')
-    expect(headings()[0].getAttribute('aria-label')).toBe(t('groupToggle').replace('{group}', 'agy'))
+      [...container.querySelectorAll<HTMLButtonElement>('.omniroute-candidates-list .omniroute-grouptoggle')]
+    // 标题即开关：分组名与条数同排，组合组排在最前，其余按组名排序。
+    expect(headings().map(node => node.textContent)).toEqual(['combos1', 'agy2', 'command-code1'])
+    expect(headings()[1].getAttribute('aria-expanded')).toBe('true')
+    expect(headings()[1].getAttribute('aria-label')).toBe(t('groupToggle').replace('{group}', 'agy'))
 
     // 收起一整组：组内复选框离开视野，标题与条数留在原处，别的分组不受影响。
-    fireEvent.click(headings()[0])
-    expect(headings()[0].getAttribute('aria-expanded')).toBe('false')
-    expect(headings()[0].textContent).toBe('agy2')
+    fireEvent.click(headings()[1])
+    expect(headings()[1].getAttribute('aria-expanded')).toBe('false')
+    expect(headings()[1].textContent).toBe('agy2')
     expect(container.querySelectorAll('.omniroute-candidates-list li')).toHaveLength(2)
     expect(container.querySelectorAll('.omniroute-candidates-list input[type="checkbox"]'))
       .toHaveLength(2)
-    expect(headings()[1].getAttribute('aria-expanded')).toBe('true')
-
-    // 再点一次把该组放回来，三条 agy 之外的行都没有被折叠状态牵动。
-    fireEvent.click(headings()[0])
     expect(headings()[0].getAttribute('aria-expanded')).toBe('true')
+
+    // 再点一次把该组放回来，组合组与另一个分组都没有被折叠状态牵动。
+    fireEvent.click(headings()[1])
+    expect(headings()[1].getAttribute('aria-expanded')).toBe('true')
     expect(container.querySelectorAll('.omniroute-candidates-list li')).toHaveLength(4)
   })
 
@@ -711,10 +746,10 @@ describe('model catalog', () => {
 
     await waitFor(() => { expect(screen.getByText(t('updateParams'))).toBeTruthy() })
     fireEvent.click(screen.getByText(t('updateParams')))
-    await waitFor(() => { expect(screen.getByText(t('paramsOverwrite'))).toBeTruthy() })
+    await waitFor(() => { expect(screen.getByText(t('paramsApply'))).toBeTruthy() })
     // The panel says why: the levels come from the gateway's own id scheme.
     expect(screen.getByText(t('paramsIdBoundSkipped'))).toBeTruthy()
-    fireEvent.click(screen.getByText(t('paramsOverwrite')))
+    fireEvent.click(screen.getByText(t('paramsApply')))
     await waitFor(() => { expect(screen.getByText(new RegExp(t('paramsApplied')))).toBeTruthy() })
     fireEvent.click(screen.getByText(t('apply')))
     await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
@@ -775,6 +810,118 @@ describe('model catalog', () => {
     fireEvent.click(screen.getByText(t('apply')))
     await waitFor(() => { expect(screen.getByText(new RegExp(t('modelIdRequired')))).toBeTruthy() })
     expect(api.mutateSettings).not.toHaveBeenCalled()
+  })
+})
+
+describe('configured model groups', () => {
+  it('groups the rows, puts combos first and folds a group from its heading', async () => {
+    const api = wireFace({ describeAnswer: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [{
+        ns: 'dsh-llm-omniroute',
+        schema: {},
+        value: {
+          baseURL: 'http://gw.local:3000/v1',
+          models: [
+            { id: 'hermes-hindsight' },
+            { id: 'agy/claude-sonnet-4-6' },
+            { id: 'command-code/deepseek-v4.1-flash' },
+          ],
+        },
+        applies: 'live',
+        secrets: [],
+        revision: 7,
+      }],
+    } })
+    const { container } = render(<OmniRouteSection api={api as never} t={t} />)
+
+    await waitFor(() => { expect(screen.getByText('hermes-hindsight')).toBeTruthy() })
+    const headings = (): HTMLButtonElement[] =>
+      [...container.querySelectorAll<HTMLButtonElement>('.omniroute-catalog .omniroute-grouptoggle')]
+    // 组合组排在最上面，其余按组名排序，条数留在标题上。
+    expect(headings().map(node => node.textContent)).toEqual(['combos1', 'agy1', 'command-code1'])
+    expect(headings()[0].getAttribute('aria-label'))
+      .toBe(t('groupToggle').replace('{group}', t('groupOther')))
+    expect(container.querySelectorAll('.omniroute-catalog .omniroute-entry')).toHaveLength(3)
+
+    // 收起一组：该组的行离开视野，别的组不受影响，标题与条数留在原处。
+    fireEvent.click(headings()[1])
+    expect(headings()[1].getAttribute('aria-expanded')).toBe('false')
+    expect(headings()[1].textContent).toBe('agy1')
+    expect(container.querySelectorAll('.omniroute-catalog .omniroute-entry')).toHaveLength(2)
+    expect(screen.queryByLabelText(`${t('modelId')} 2`)).toBeNull()
+    expect(headings()[0].getAttribute('aria-expanded')).toBe('true')
+
+    // 再点一次放回来，行按原来的位置回来。
+    fireEvent.click(headings()[1])
+    expect(container.querySelectorAll('.omniroute-catalog .omniroute-entry')).toHaveLength(3)
+    expect(screen.getByLabelText(`${t('modelId')} 2`)).toBeTruthy()
+  })
+
+  it('keeps an id-less draft row outside every group, at the end of the list', async () => {
+    const api = wireFace()
+    const { container } = render(<OmniRouteSection api={api as never} t={t} />)
+
+    await waitFor(() => { expect(screen.getByText(t('addModel'))).toBeTruthy() })
+    fireEvent.click(screen.getByText(t('addModel')))
+
+    // 草稿行没有 id，不属于任何分组，因此分组标题不增加，它排在分组之后。
+    const headings = [...container.querySelectorAll('.omniroute-catalog .omniroute-grouptoggle')]
+    expect(headings.map(node => node.textContent)).toEqual(['combos1'])
+    const entries = [...container.querySelectorAll('.omniroute-entry')]
+    expect(entries).toHaveLength(2)
+    expect(entries[0]?.querySelector<HTMLInputElement>('input[type="text"]')?.value).toBe('deepseek-chat')
+    expect(entries[1]?.querySelector<HTMLInputElement>('input[type="text"]')?.value).toBe('')
+  })
+})
+
+describe('web capability switches', () => {
+  it('defaults both switches on and persists what the page edits', async () => {
+    const api = wireFace()
+    render(<OmniRouteSection api={api as never} t={t} />)
+
+    await waitFor(() => { expect(screen.getByLabelText(t('webSearchToggle'))).toBeTruthy() })
+    expect((screen.getByLabelText(t('webSearchToggle')) as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByLabelText(t('webFetchToggle')) as HTMLInputElement).checked).toBe(true)
+
+    fireEvent.click(screen.getByLabelText(t('webFetchToggle')))
+    fireEvent.click(screen.getByText(t('apply')))
+    await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
+    const web = api.mutateSettings.mock.calls[0][1]
+      .find((op: { path: string[] }) => op.path[0] === 'web').value
+    expect(web).toEqual({ searchEnabled: true, fetchEnabled: false })
+  })
+
+  it('reads a stored switch back and carries the keys the page does not edit', async () => {
+    const api = wireFace({ describeAnswer: {
+      writable: true,
+      hasDocument: true,
+      namespaces: [{
+        ns: 'dsh-llm-omniroute',
+        schema: {},
+        value: {
+          baseURL: 'http://gw.local:3000/v1',
+          models: [],
+          web: { searchEnabled: false, maxResults: 12 },
+        },
+        applies: 'live',
+        secrets: [],
+        revision: 7,
+      }],
+    } })
+    render(<OmniRouteSection api={api as never} t={t} />)
+
+    await waitFor(() => { expect(screen.getByLabelText(t('webSearchToggle'))).toBeTruthy() })
+    expect((screen.getByLabelText(t('webSearchToggle')) as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText(t('webFetchToggle')) as HTMLInputElement).checked).toBe(true)
+
+    fireEvent.click(screen.getByText(t('apply')))
+    await waitFor(() => { expect(api.mutateSettings).toHaveBeenCalledTimes(1) })
+    const web = api.mutateSettings.mock.calls[0][1]
+      .find((op: { path: string[] }) => op.path[0] === 'web').value
+    // 页面只编辑两个开关，网关内部 provider 与条数等键原样带过。
+    expect(web).toEqual({ searchEnabled: false, maxResults: 12, fetchEnabled: true })
   })
 })
 

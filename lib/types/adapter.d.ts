@@ -99,6 +99,8 @@ export interface OmniRouteAdapterOptions {
 export declare const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300000;
 /** Default context capacity when neither the catalog nor config names one. */
 export declare const DEFAULT_CONTEXT_WINDOW = 128000;
+/** Default forward proxy for the models.dev download: the conventional Clash port on loopback. */
+export declare const DEFAULT_PROXY_URL = "http://127.0.0.1:7890";
 /** The public, provider-agnostic model catalog this feature reads. */
 export declare const MODELS_DEV_API_URL = "https://models.dev/api.json";
 /**

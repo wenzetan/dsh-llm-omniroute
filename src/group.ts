@@ -49,6 +49,20 @@ export function groupOf(id: string): string {
 }
 
 /**
+ * 分组的展示顺序：网关自己的组合模型（组名为空串）排在最前，其余分组按组名
+ * 升序。设置页的候选列表与模型编辑列表共用这一顺序。
+ * @param left - 一个分组名。
+ * @param right - 另一个分组名。
+ * @returns 传给 `Array.prototype.sort` 的比较结果。
+ */
+export function compareGroups(left: string, right: string): number {
+  if (left === right) return 0
+  if (left.length === 0) return -1
+  if (right.length === 0) return 1
+  return left < right ? -1 : 1
+}
+
+/**
  * 显示名保留的尾段：最后一个 `/` 之后的部分。多个 `/` 也只截最后一段，
  * 例如 `command-code/deepseek/deepseek-v4.1-flash` 保留 `deepseek-v4.1-flash`。
  * @param id - 网关给出的模型 id。

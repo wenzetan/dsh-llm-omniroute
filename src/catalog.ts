@@ -302,7 +302,8 @@ function entryEfforts(entry: WireModelEntry): string[] {
  * The capability facts one entry contributes to its catalog row: capacities
  * prefer the combined `context_length` over the input-only `max_input_tokens`
  * and `max_output_tokens` over OpenAI's older `max_tokens`, and the vision /
- * tool-calling flags mirror the capability object verbatim.
+ * tool-calling flags mirror the capability object verbatim. Only the gateway
+ * states these facts; the models.dev lookup never overwrites them.
  * @param entry - the entry the row takes its facts from.
  * @returns capacity and capability fields, omitting everything undisclosed.
  */

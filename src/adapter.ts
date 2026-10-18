@@ -151,6 +151,8 @@ export interface OmniRouteAdapterOptions {
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 /** Default context capacity when neither the catalog nor config names one. */
 export const DEFAULT_CONTEXT_WINDOW = 128_000
+/** Default forward proxy for the models.dev download: the conventional Clash port on loopback. */
+export const DEFAULT_PROXY_URL = 'http://127.0.0.1:7890'
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
 
 /** The public, provider-agnostic model catalog this feature reads. */

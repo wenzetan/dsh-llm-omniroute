@@ -10,17 +10,16 @@ The plugin registers the gateway as the **`omniroute`** provider route — shown
 
 - **Chat completions** over `/v1/chat/completions`, streamed back as text,
   reasoning and tool calls.
-- **A model list mapped from `/v1/models`**: context window, output cap, vision
-  and tool-calling capability, and the model's thinking levels — no second
-  catalog needed.
+- **A model list mapped from `/v1/models`**: context window, output cap, image
+  input, and the model's thinking levels — no second catalog needed.
 - **Thinking levels that respect the gateway's naming**: a `no-think/…` route
   offers `None` only; a route whose id carries the level (`…-high`, `…-low`)
   folds back to the native id and sends the id matching the selected level;
   only an id that encodes no level uses the advertised `effort_tiers`.
-- **`web_search` / `web_fetch` backed by the gateway's own retrieval stack**
-  (`POST /v1/search`, `POST /v1/web/fetch`) instead of the shipped DeepSeek
-  search providers (`deepseek-official` or `deepseek-search-api`) and the local
-  `http` fetcher.
+- **`web_search` / `web_fetch`, each with its own switch**: on (the default)
+  they use the gateway's retrieval stack (`POST /v1/search`,
+  `POST /v1/web/fetch`); off, they go to the DeepSeek Search / Fetch API dsh
+  ships, exactly as without this plugin.
 
 No dsh modification is required. The API key lives in the dsh credentials store
 under the fixed reference `omniroute`; it is configured on the settings page and
@@ -39,7 +38,7 @@ npm install -g pnpm
 dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 
 # or straight from this repository at the published tag
-dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.1-rc.2-v0.2"
+dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.1-rc.2-v0.3"
 ```
 
 `dsh plugin add` writes the profile dependency, appends `dsh-llm-omniroute` to
@@ -64,9 +63,9 @@ is a JSON fragment to check, **not** a replacement for the whole file:
 The bundle patch (`cordis.patch.yml`) mounts the plugin row. Restart dsh Web
 after installing.
 
-To route `web_search` / `web_fetch` through this gateway, add the seam pin to
-the **profile's own** `cordis.patch.yml` (`web` is an official core row, so a
-bundle must not override it):
+To let this plugin own `web_search` / `web_fetch` — whichever way its switches
+are set — add the seam pin to the **profile's own** `cordis.patch.yml` (`web` is
+an official core row, so a bundle must not override it):
 
 ```yaml
 - id: web
@@ -88,24 +87,28 @@ leaves a field empty while more than one provider is usable, the seam answers
 2. Enter the gateway base URL **including `/v1`** (for a local OmniRoute:
    `http://127.0.0.1:20128/v1`) and the API key.
 3. Click **Fetch models**. The plugin asks the gateway's `/v1/models` and shows
-   what each entry declares: capacities, capability flags and thinking levels.
+   what each entry declares: capacities, image input and thinking levels.
    Entries that cannot serve chat (embedding, rerank) are filtered out.
 4. Select the models you want and add them. Each adopted row keeps the
    gateway's own facts, including the level → model-id map for id-bound routes.
 5. Click **Save**, then pick a model under the `omniroute` provider in the
    conversation model picker.
 
-The fetched-model picker groups entries by the first path segment of the model
-id. A group folds as one block, the select-all action becomes invert once
-everything is picked, and `groupLabels` gives a group a display name; its rows
+Models are grouped by the first path segment of the id: the gateway's own combo
+models (an id without `/`) form the `combos` group and come first, the other
+groups follow in name order. Both the fetched-model picker and the configured
+model list fold a group as one block, and the select-all action becomes invert
+once everything is picked. `groupLabels` gives a group a display name; its rows
 then read `[display name]tail`. The settings rows and the model picker compose
 that name through the same code, so a saved label reaches the model list on its
 next read. Grouping and labels affect display only — the request still uses the
 model id.
 
-`web_search` / `web_fetch` then send to the same gateway base with the same key.
-Use the provider-id fields only if you want to pin one gateway-side search or
-fetch provider.
+`web_search` / `web_fetch` use the same gateway base with the same key by
+default, and the settings page has one switch per capability. Switched off, that
+capability goes to the DeepSeek Search / Fetch API dsh ships, authenticating with
+dsh's own DeepSeek credential. `web.searchProvider` / `web.fetchProvider` only
+matter when you want to pin one gateway-side provider.
 
 ## Thinking levels
 
@@ -142,9 +145,10 @@ catalog.
 | Text, reasoning content, tool calls | Streaming; the selected level is sent as `reasoning_effort` or folded into the model id |
 | Model discovery | `GET /v1/models`; non-chat entries are dropped by capability fact (`type`, `supported_endpoints`) and by the configurable id-name filter |
 | Capacities | `context_length`/`max_input_tokens` → context window, `max_output_tokens`/`max_tokens` → output cap |
-| Image input | The gateway's `vision` flag is kept and shown, but this route declares text-only input: the serializer cannot send images yet, and declaring otherwise would let the host accept requests that must fail |
-| Tool calling | The gateway's `tool_calling` flag is kept and shown; the harness has no per-model declaration for it |
-| models.dev | Optional fallback for rows the gateway leaves thin; it never overwrites levels that the model id already fixes |
+| Image input | The only capability the settings page shows, and the gateway is its only source. The `vision` flag is kept, but this route declares text-only input: the serializer cannot send images yet, and declaring otherwise would let the host accept requests that must fail |
+| Tool calling | The gateway's `tool_calling` flag is kept in the configuration and written back on save; the page simply does not display it |
+| web_search / web_fetch | One switch each; on, they use the gateway's retrieval stack, off, the DeepSeek Search / Fetch API dsh ships |
+| models.dev | Optional source that fills only the capacities and levels the gateway left out; an existing value is never overwritten |
 | API key | Saved through settings, never echoed; blank input keeps the stored key |
 | Multiple gateways | One `omniroute` route and one gateway configuration |
 
@@ -159,6 +163,7 @@ catalog.
 | A request fails with `Model '…' is not available in the active live catalog` | The row's id may be hand-edited to a native id the gateway does not route; re-fetch the models or pick the row's mapped level |
 | `WEB_PROVIDER_AMBIGUOUS` on `web_search` | The profile's `web` row leaves `searchProvider` empty while several providers are usable; pin `web.searchProvider: omniroute` (and `fetchProvider`) in the profile patch |
 | `WEB_DUPLICATE_PROVIDER: omniroute` at boot | Another installed plugin owns the same web provider id — `dsh-web-search-omniroute` is the known one; keep only one of them |
+| `web_search` / `web_fetch` reports a missing credential with a switch off | The native path uses dsh's own DeepSeek credential (`DEEPSEEK_API_KEY`), not the gateway key |
 | models.dev download fails | Network and proxy settings; the plugin proxy applies to that download only, and dsh may also apply its own environment proxy |
 | Missing-peer warnings during install | dsh supplies the host packages at runtime; if install and startup succeed, do not add duplicate host packages |
 | Startup reports the plugin needs `dsh >= 0.2.1-rc.2` while the host is newer | An older install left its own host packages under the plugin: move `<profile>/node_modules/dsh-llm-omniroute/node_modules/@deepseek-ai` aside and restart dsh Web |

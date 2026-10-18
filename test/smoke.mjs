@@ -874,9 +874,11 @@ function stubModelsListing() {
   assert.deepEqual(fetchResult.body, { kind: 'text', content: 'y'.repeat(10) })
   assert.equal(fetchResult.truncated, true)
 
-  // A disabled web block leaves the seam alone rather than registering a
-  // provider that can never answer.
-  assert.equal(plugin.resolveWebOptions({ enabled: false }, 'http://gw.local:3000/v1').enabled, false)
+  // Each capability has its own switch, and both default to the gateway.
+  assert.equal(plugin.resolveWebOptions({ searchEnabled: false }, 'http://gw.local:3000/v1').searchEnabled, false)
+  assert.equal(plugin.resolveWebOptions({ searchEnabled: false }, 'http://gw.local:3000/v1').fetchEnabled, true)
+  assert.equal(plugin.resolveWebOptions(undefined, 'http://gw.local:3000/v1').searchEnabled, true)
+  assert.equal(plugin.resolveWebOptions(undefined, 'http://gw.local:3000/v1').fetchEnabled, true)
 
   // A gateway failure is a WebError-shaped throw naming the endpoint, never a
   // silent empty result.
@@ -916,20 +918,68 @@ function stubModelsListing() {
   // config read.
   assert.equal(web.searchProviders[0].available(), true)
 
-  // A disabled web block registers nothing at all.
+  // Both switches off still registers both providers: the seam's configured id
+  // has to keep resolving, and each capability then answers from the shipped
+  // DeepSeek implementation instead of the gateway.
   const off = new Context()
   await off.plugin(LlmRuntime)
   await off.plugin(FakeCredentials, { omniroute: 'key-k' })
   await off.plugin(FakeWeb)
-  await mountPlugin(off, { baseURL: 'http://gw.local:3000/v1', web: { enabled: false } })
-  assert.equal(off.get('web').searchProviders.length, 0)
-  assert.equal(off.get('web').fetchProviders.length, 0)
+  await mountPlugin(off, {
+    baseURL: 'http://gw.local:3000/v1',
+    web: { searchEnabled: false, fetchEnabled: false },
+  })
+  assert.equal(off.get('web').searchProviders.length, 1)
+  assert.equal(off.get('web').fetchProviders.length, 1)
+  assert.equal(off.get('web').searchProviders[0].available(), true)
 
   // A composition with no web seam still mounts the chat route.
   const none = new Context()
   await none.plugin(LlmRuntime)
   await mountPlugin(none)
   assert.deepEqual(none.llm.listProviders().map(provider => provider.id), ['omniroute'])
+}
+
+// ── Block K2: a switch off delegates to the shipped DeepSeek providers ──
+// The native path is the very implementation dsh ships for these two APIs, so
+// the endpoint, the credential reference and the request body are that
+// provider's own — not a second implementation this plugin maintains.
+{
+  const requests = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    requests.push({
+      url: String(url),
+      body: JSON.parse(String(init?.body ?? '{}')),
+      auth: new Headers(init?.headers).get('authorization'),
+    })
+    return new Response(JSON.stringify({
+      results: [{ title: 'Native', url: 'https://example.com/native', snippet: 'native snippet', date: null }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  const ctx = new Context()
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(FakeCredentials, { omniroute: 'key-k', DEEPSEEK_API_KEY: 'deepseek-key' })
+  await ctx.plugin(FakeWeb)
+  await mountPlugin(ctx, {
+    baseURL: 'http://gw.local:3000/v1',
+    web: { searchEnabled: false, fetchEnabled: false },
+  })
+  const web = ctx.get('web')
+  let native
+  try {
+    native = await web.searchProviders[0].search({ query: 'native query' })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].url, 'https://api.deepseek.com/v1/tools/search')
+  assert.equal(requests[0].auth, 'Bearer deepseek-key')
+  assert.deepEqual(requests[0].body, { query: 'native query', count: 10, need_content: false })
+  assert.deepEqual(native.sources, [
+    { url: 'https://example.com/native', title: 'Native', snippet: 'native snippet' },
+  ])
 }
 
 // ── Block H (optional): real-catalog check against the local dev cache ──

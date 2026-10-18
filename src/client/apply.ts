@@ -186,10 +186,13 @@ export const SECTION_CSS = `
    far below the panel. */
 .omniroute-candidates-list { max-height: 320px; overflow-y: auto; }
 .omniroute-candidates-group { padding: 2px 0 6px; }
+/* One configured group of model entries; the heading above it is the same
+   disclosure control the fetched-model picker uses. */
+.omniroute-modelgroup { display: flex; flex-direction: column; gap: 10px; }
 /* The group heading doubles as the disclosure control: one click folds the whole
    group, and the count stays on the heading so a folded group still reports its
-   size. */
-.omniroute-candidategroup-toggle {
+   size. Both the configured list and the fetched-model picker use it. */
+.omniroute-grouptoggle {
   box-sizing: border-box; width: 100%; display: flex; align-items: center;
   gap: 6px; height: 28px; padding: 0 8px 0 2px; margin: 6px 0 0;
   border: none; border-radius: 8px; background: transparent;
@@ -197,15 +200,15 @@ export const SECTION_CSS = `
   font: inherit; font-size: 12px; line-height: 18px; font-weight: 500;
   text-align: left; cursor: pointer;
 }
-.omniroute-candidategroup-toggle:hover {
+.omniroute-grouptoggle:hover {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
-.omniroute-candidategroup-name {
+.omniroute-groupname {
   flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap;
 }
-.omniroute-candidategroup-count {
+.omniroute-groupcount {
   flex: none; font-size: 11px; line-height: 18px;
   color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums;
 }

@@ -108,4 +108,20 @@ await settings.mutate(NS, [
 ], view().revision)
 assert.deepEqual(view().value.providerHints, { defaults: { qwen: 'alibaba' }, models: {} })
 
-console.log('settings maps: groupLabels and providerHints round-trip through describe/mutate OK')
+// The web block is a nested object rather than a map: the two capability
+// switches have to survive the round trip, and unsets fall back to the
+// resolved defaults instead of leaving the block half-defined.
+await settings.mutate(NS, [
+  { op: 'set', path: ['web'], value: { searchEnabled: false, maxResults: 12 } },
+], view().revision)
+assert.equal(view().value.web.searchEnabled, false)
+assert.equal(view().value.web.fetchEnabled, true)
+assert.equal(view().value.web.maxResults, 12)
+assert.deepEqual(entry.options.config.web, { searchEnabled: false, maxResults: 12 })
+
+await settings.mutate(NS, [{ op: 'unset', path: ['web'] }], view().revision)
+assert.equal(view().value.web.searchEnabled, true)
+assert.equal(view().value.web.fetchEnabled, true)
+assert.equal(entry.options.config.web, undefined)
+
+console.log('settings maps: groupLabels, providerHints and the web block round-trip through describe/mutate OK')

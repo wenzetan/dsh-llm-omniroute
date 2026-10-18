@@ -2,6 +2,7 @@ node_modules/
 .git-commit-msg.tmp
 .selfcheck/
 .cache/
+.scratch-build/
 test/.tmp-host-alpha/
 test/.tmp-host-surface/
 .tmp-host/

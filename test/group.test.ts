@@ -3,7 +3,7 @@
  * 函数，所以这里锁住的是两边共同遵守的规则。
  */
 import { describe, expect, it } from 'vitest'
-import { groupOf, groupedModelName, modelTail, routeIdOf } from '../src/group.ts'
+import { compareGroups, groupOf, groupedModelName, modelTail, routeIdOf } from '../src/group.ts'
 
 describe('group vocabulary', () => {
   it('takes the first path segment as the group', () => {
@@ -49,5 +49,13 @@ describe('group vocabulary', () => {
     // 空显示名等同于未配置，不能拼出空中括号。
     expect(groupedModelName('agy/claude-sonnet-4-6', undefined, { agy: '' }))
       .toBe('[agy]claude-sonnet-4-6')
+  })
+
+  it('sorts the combo group ahead of every named group', () => {
+    // 组合组（空组名）永远排最前，其余分组按组名升序。
+    expect([...['command-code', 'agy', '', 'zeta']].sort(compareGroups))
+      .toEqual(['', 'agy', 'command-code', 'zeta'])
+    expect(compareGroups('', '')).toBe(0)
+    expect(compareGroups('agy', 'agy')).toBe(0)
   })
 })

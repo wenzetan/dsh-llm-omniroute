@@ -49,7 +49,8 @@ Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后
       enabled: false
       url: http://127.0.0.1:7890
     web:
-      enabled: true
+      searchEnabled: true
+      fetchEnabled: true
       maxResults: 8
       snippetMaxChars: 600
       fetchFormat: markdown
@@ -69,7 +70,8 @@ Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后
 | `proxy.enabled` / `proxy.url` | `false` / `http://127.0.0.1:7890` | 仅为 models.dev 参数下载显式指定 HTTP 代理 |
 | `providerHints` | 内置家族匹配规则 | 调整 models.dev 参数匹配的数据来源，见下文 |
 | `retryPolicy` | 宿主默认策略 | 使用对应宿主版本 `RetryPolicySchema` 定义的字段 |
-| `web.enabled` | `true` | 是否注册 `omniroute` 搜索/抓取 provider |
+| `web.searchEnabled` | `true` | `web_search` 是否走网关；关闭时交给 dsh 自带的 DeepSeek Search API 实现 |
+| `web.fetchEnabled` | `true` | `web_fetch` 是否走网关；关闭时交给 dsh 自带的 DeepSeek Fetch API 实现 |
 | `web.searchProvider` | 空 | 固定某个网关侧搜索 provider（如 `exa-search`、`ollama-search`）；空则由网关按查询路由 |
 | `web.maxResults` | `8` | 工具未给上限时向网关请求的结果数 |
 | `web.snippetMaxChars` | `600` | 单条来源摘要上限；网关的 snippet 是整段正文抽取，不截断会灌满上下文 |
@@ -80,12 +82,15 @@ Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后
 
 每个模型必须有唯一且非空的 `id`，可选字段为 `name`、`description`、`contextWindow`、`maxTokens`、
 `vision`、`toolCalling`、`reasoningEfforts`、`defaultReasoningEffort`、`effortModels`。容量必须为
-正整数。Web 容量输入框支持 `128K`、`1M`（分别为 128000、1000000），YAML 使用整数。
+正整数，且只由网关提供：models.dev 不会覆盖行里已有的值。设置页只展示 `vision`（图片输入），
+`toolCalling` 作为网关的能力事实保留在配置里、随保存原样写回，界面不展示也不编辑。Web 容量输入框
+支持 `128K`、`1M`（分别为 128000、1000000），YAML 使用整数。
 
-设置页按 id 的第一个路径段给模型分组，候选列表可以整组折叠，全选按钮在满选时切换为反选；
-`groupLabels` 为分组设置显示名，组内模型显示为「[显示名]尾段」，设置页的行与模型选择器里的名字
-是同一套拼法（分组名、尾段与显示名拼法定义在 `src/group.ts`，宿主与浏览器半共用）。分组与显示名
-只影响展示，不改写模型 id 与请求内容；改完保存后，下一次列取模型即按新显示名给出名字。
+设置页按 id 的第一个路径段给模型分组：网关自己的组合模型（id 不含 `/`）显示为 `combos` 组并排在
+最上面，其余分组按组名排序；候选列表与已配置的模型列表都可以整组折叠，全选按钮在满选时切换为
+反选。`groupLabels` 为分组设置显示名，组内模型显示为「[显示名]尾段」，设置页的行与模型选择器里
+的名字是同一套拼法（分组名、尾段与显示名拼法定义在 `src/group.ts`，宿主与浏览器半共用）。分组与
+显示名只影响展示，不改写模型 id 与请求内容；改完保存后，下一次列取模型即按新显示名给出名字。
 
 `effortModels` 的键必须是 `reasoningEfforts` 中声明过的等级，值不能为空——写错会在保存时被拒绝。
 
@@ -97,8 +102,8 @@ Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后
 | --- | --- |
 | `context_length`，否则 `max_input_tokens` | `contextWindow` |
 | `max_output_tokens`，否则 `max_tokens` | `maxTokens` |
-| `capabilities.vision` 或 `input_modalities` 含 `image` | `vision`（仅展示；本路由仍声明纯文本输入） |
-| `capabilities.tool_calling` | `toolCalling`（仅展示） |
+| `capabilities.vision` 或 `input_modalities` 含 `image` | `vision`（设置页展示这一项能力：图片输入；本路由仍声明纯文本输入） |
+| `capabilities.tool_calling` | `toolCalling`（作为网关能力事实保留并随保存写回，界面不展示） |
 | `capabilities.effort_tiers` | `reasoningEfforts`（**仅当 id 未限定等级**） |
 
 非 chat 条目按 `type`（`embedding`、`rerank`…）与 `supported_endpoints`（不含 `chat`）剔除，再叠加
@@ -126,13 +131,14 @@ Web 设置页写入的就是上述 profile patch 的 volatile 字段：保存后
 网关应用模型自己的默认值。id 绑定等级的行必须保留一个网关列出的等级——裸原生 id 不在 live
 catalog 里，适配器在收到显式「不传」时会以 `INVALID_REQUEST` 拒绝这种组合。
 
-models.dev 面板只在行的等级**不是**由 id 决定时才会覆盖 `reasoningEfforts`；id 限定或 no-think 的
-行会显示「思考等级由模型 id 决定，未覆盖」，容量仍可正常被覆盖/填空。
+models.dev 面板只填补行里空白的字段：等级不由 id 决定、且行里还没有等级时才会写入
+`reasoningEfforts`；id 限定或 no-think 的行会显示「思考等级由模型 id 决定，未覆盖」。容量与图片
+输入同样以网关为准，行里已有值时保持原值。
 
 ## 模型参数与 models.dev
 
-「从models.dev获取模型信息」在公共目录中匹配已有 ID，补充容量与等级，作为网关未声明字段时的兜底。
-操作顺序是：**获取模型 → 查询参数 → 核对来源 → 应用 → 保存**。
+「从models.dev获取模型信息」在公共目录中匹配已有 ID，**只填补网关没有给出的字段**（容量与思考
+等级），已有值一律保留。操作顺序是：**获取模型 → 查询参数 → 核对来源 → 应用 → 保存**。
 
 匹配优先使用内置家族规则（GPT → OpenAI、Claude → Anthropic、GLM → Z.ai 等）。目录没有精确版本时
 可能使用同供应商的近似型号；「官方」只表示目录来源的优先级，不代表网关能力经过认证。需要调整
@@ -148,6 +154,17 @@ providerHints:
 
 ## web_search / web_fetch
 
+两个能力各有一个开关，默认都走网关：
+
+| 开关 | 打开（默认） | 关闭 |
+| --- | --- | --- |
+| `web.searchEnabled` | `POST {baseURL}/search` | dsh 自带的 DeepSeek Search API 实现（`DEEPSEEK_API_KEY` 凭据 + `https://api.deepseek.com/v1/tools`） |
+| `web.fetchEnabled` | `POST {baseURL}/web/fetch` | dsh 自带的 DeepSeek Fetch API 实现 |
+
+关闭时插件**仍然注册** `omniroute` provider——seam 的指向必须继续解析到它——只是把该能力原样交给
+dsh 自己的实现，因此端点、参数、错误码与配置提示都与不装本插件时一致。两个开关互相独立：可以只
+让搜索走网关，也可以只让抓取走网关。走原生实现时用的是 DeepSeek 自己的凭据，与网关密钥无关。
+
 `web` 是官方核心行，bundle 不允许覆盖它，因此 seam 的指向由 **profile 自己的**
 `cordis.patch.yml` 声明：
 
@@ -158,7 +175,7 @@ providerHints:
     fetchProvider: omniroute
 ```
 
-两个 provider 分别转发到：
+打开开关时，两个 provider 分别转发到：
 
 - 搜索 → `POST {baseURL}/search`（`{query, max_results, provider?}`），`results[]` 映射成 seam 的
   `sources[]`，`answer.text` 映射成 `content`；snippet 按 `web.snippetMaxChars` 截断。

@@ -9,14 +9,14 @@
 真正暴露出来的能力接进 dsh：
 
 - **对话**：走 `/v1/chat/completions`，流式还原文本、思考内容与工具调用。
-- **模型列表由 `/v1/models` 映射**：上下文窗口、输出上限、图片与工具调用能力、思考等级，一次
-  获取即可用，不需要第二份目录。
+- **模型列表由 `/v1/models` 映射**：上下文窗口、输出上限、图片输入能力、思考等级，一次获取即可
+  用，不需要第二份目录。
 - **思考等级按网关的命名规则处理**：`no-think/…` 这类路由只给 `None`；id 里带等级的
   （`…-high`、`…-low`）折叠回原生 id，发送时按所选等级换成对应 id；只有 id 本身不含等级时才
   采用网关声明的 `effort_tiers`。
-- **`web_search` / `web_fetch` 走网关自己的检索栈**（`POST /v1/search`、
-  `POST /v1/web/fetch`），不再落到出厂的 DeepSeek 搜索 provider（`deepseek-official`，或在网页搜索
-  设置里切换的 `deepseek-search-api`）与本地 `http` 抓取。
+- **`web_search` / `web_fetch` 各有一个开关**：打开（默认）时走网关自己的检索栈（`POST /v1/search`、
+  `POST /v1/web/fetch`）；关闭时交给 dsh 自带的 DeepSeek 官方 Search / Fetch API 实现，与不装本
+  插件时完全一致。
 
 不需要改 dsh。API 密钥存在 dsh 凭据库的固定引用 `omniroute` 下，在设置页填写、不回显。
 
@@ -32,7 +32,7 @@ npm install -g pnpm
 dsh plugin --profile web add file:/path/to/dsh-llm-omniroute
 
 # 或直接从本仓库的已发布 tag 安装
-dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.1-rc.2-v0.2"
+dsh plugin --profile web add "github:wenzetan/dsh-llm-omniroute#v0.2.1-rc.2-v0.3"
 ```
 
 `dsh plugin add` 会写 profile 依赖、把 `dsh-llm-omniroute` 追加进 `dsh.profile.bundles`，并把包装进
@@ -54,8 +54,8 @@ profile。老宿主上若 bundle 条目缺失，按下面的片段核对并补�
 
 bundle patch（`cordis.patch.yml`）只插入插件行。装完重启 dsh Web。
 
-要让 `web_search` / `web_fetch` 走本网关，把 seam 指向加到 **profile 自己的**
-`cordis.patch.yml`（`web` 是官方核心行，bundle 不允许覆盖它）：
+要让 `web_search` / `web_fetch` 由本插件接管（无论开关开还是关），把 seam 指向加到 **profile
+自己的** `cordis.patch.yml`（`web` 是官方核心行，bundle 不允许覆盖它）：
 
 ```yaml
 - id: web
@@ -65,7 +65,7 @@ bundle patch（`cordis.patch.yml`）只插入插件行。装完重启 dsh Web。
 ```
 
 不加这两行时，profile 的 `web` 行保留自己的选择——默认是 `deepseek-official` / `http`，打开网页搜索
-设置里的开关后换成 `deepseek-search-api` / `deepseek-fetch-api`——本网关的 provider 仍会注册，但不会
+设置里的开关后换成 `deepseek-search-api` / `deepseek-fetch-api`——本插件的 provider 仍会注册，但不会
 被选中。若 profile 的 `web` 行把某一项留空而同时有多个可用 provider，seam 会回答
 `WEB_PROVIDER_AMBIGUOUS`；把两个字段都指向 `omniroute` 即可。
 
@@ -73,17 +73,20 @@ bundle patch（`cordis.patch.yml`）只插入插件行。装完重启 dsh Web。
 
 1. 打开 dsh Web 设置里的 **Custom Provider**。
 2. 填网关地址（**含 `/v1`**，本机 OmniRoute 是 `http://127.0.0.1:20128/v1`）与 API 密钥。
-3. 点 **获取模型**。插件询问网关 `/v1/models`，把每条声明的事实摆出来：容量、能力开关、思考
+3. 点 **获取模型**。插件询问网关 `/v1/models`，把每条声明的事实摆出来：容量、图片输入、思考
    等级；不能服务 chat 的条目（embedding、rerank）会被过滤。
 4. 勾选需要的模型并添加。采纳的行保留网关自己的事实，包括「等级 → 模型 id」映射。
 5. 点 **保存**，然后在对话的模型选择器里选 `omniroute` 供应商下的模型。
 
-获取模型的候选列表按模型 id 的第一个路径段分组，整组可以折叠，全选按钮在满选时切换为反选；
-`groupLabels` 给分组设置显示名，组内模型显示为「[显示名]尾段」——设置页的行与模型选择器里的名字
-用同一套拼法，改完保存后模型列表即按新显示名给出名字。分组与显示名只影响展示，请求仍使用模型 id。
+模型列表按模型 id 的第一个路径段分组：网关自己拼装的组合模型（id 不含 `/`）归入 `combos` 组并
+排在最上面，其余分组按组名排序；候选列表与已配置的模型列表都能整组折叠，全选按钮在满选时切换为
+反选。`groupLabels` 给分组设置显示名，组内模型显示为「[显示名]尾段」——设置页的行与模型选择器里
+的名字用同一套拼法，改完保存后模型列表即按新显示名给出名字。分组与显示名只影响展示，请求仍使用
+模型 id。
 
-`web_search` / `web_fetch` 会用同一个网关地址和同一把密钥。只有在你想固定某个网关侧搜索或抓取
-provider 时，才需要动 `web.searchProvider` / `web.fetchProvider`。
+`web_search` / `web_fetch` 默认都用同一个网关地址和同一把密钥，设置页上有两个开关可以分别关掉：
+关掉的一项交给 dsh 自带的 DeepSeek 官方接口，用的也是 dsh 自己的 DeepSeek 凭据。只有想固定某个
+网关侧搜索或抓取 provider 时，才需要动 `web.searchProvider` / `web.fetchProvider`。
 
 ## 思考等级
 
@@ -112,9 +115,10 @@ id 按等级路由的行必须保留一个已列出的等级，因为裸原生 i
 | 文本 / 思考内容 / 工具调用 | 流式；所选等级要么作为 `reasoning_effort`，要么折进模型 id |
 | 模型发现 | `GET /v1/models`；非 chat 条目按能力字段（`type`、`supported_endpoints`）与可配置的 id 名过滤剔除 |
 | 容量映射 | `context_length`/`max_input_tokens` → 上下文窗口，`max_output_tokens`/`max_tokens` → 输出上限 |
-| 图片输入 | 网关的 `vision` 标记会被保留并展示，但本路由声明为纯文本输入：序列化器目前还不能发送图片，谎报会让宿主接受注定失败的请求 |
-| 工具调用 | 网关的 `tool_calling` 标记会被保留并展示；dsh 没有对应的逐模型声明字段 |
-| models.dev | 可选的兜底来源；对 id 已限定等级的行不会覆盖等级 |
+| 图片输入 | 设置页展示的能力只有这一项，且只由网关提供；网关的 `vision` 标记被保留，但本路由声明为纯文本输入：序列化器目前还不能发送图片，谎报会让宿主接受注定失败的请求 |
+| 工具调用 | 网关的 `tool_calling` 标记作为能力事实保留在配置里并随保存写回，只是界面不展示 |
+| web_search / web_fetch | 各有一个开关；打开走网关检索栈，关闭走 dsh 自带的 DeepSeek 官方 Search / Fetch API |
+| models.dev | 可选来源，只填补网关没有给出的容量与等级；已有值不会被覆盖 |
 | API 密钥 | 设置页保存、不回显；留空保持已存密钥 |
 | 多网关 | 目前一条 `omniroute` 路由、一份网关配置 |
 
@@ -129,6 +133,7 @@ id 按等级路由的行必须保留一个已列出的等级，因为裸原生 i
 | 请求报 `Model '…' is not available in the active live catalog` | 该行的 id 可能被手工改成了网关并不路由的原生 id；重新获取模型，或改选行内映射的等级 |
 | `web_search` 报 `WEB_PROVIDER_AMBIGUOUS` | profile 的 `web` 行把 `searchProvider` 留空且同时有多个可用 provider；在 profile patch 里把 `web.searchProvider` 与 `web.fetchProvider` 指向 `omniroute` |
 | 启动报 `WEB_DUPLICATE_PROVIDER: omniroute` | 另一个已装插件占用了同一个 web provider id，已知的是 `dsh-web-search-omniroute`；两者只留一个 |
+| 关掉开关后 `web_search` / `web_fetch` 报缺少凭据 | 原生路径用的是 DeepSeek 自己的凭据（`DEEPSEEK_API_KEY`），与网关密钥无关 |
 | models.dev 下载失败 | 网络与代理设置；插件代理只作用于这次下载，宿主自身也可能套用自己的环境代理 |
 | 安装时提示 missing peer | 宿主运行时自带这些包；装完能正常启动就不必再装一份 |
 | 启动报插件要求 `dsh >= 0.2.1-rc.2`，但宿主已经更新 | 插件目录里残留了旧安装自带的宿主包：把 `<profile>/node_modules/dsh-llm-omniroute/node_modules/@deepseek-ai` 移走，重启 dsh Web |
